@@ -1,107 +1,168 @@
 extends Sprite2D
+## PMD-style 8-directional tile movement with walk and dash (run).
 
 @export var tile_size: int = 24
-@export var normal_speed: float = 0.15
-@export var dash_speed: float = 0.05
+@export var walk_time: float = 0.15
+@export var dash_time: float = 0.05
 
 var is_moving: bool = false
-var is_auto_dashing: bool = false
-var current_dir: Vector2 = Vector2.ZERO
-var input_locked_dir: Vector2 = Vector2.ZERO # The "banned" direction after a forced stop
+var is_dashing: bool = false
+var is_frozen: bool = false
+var facing: Vector2i = Vector2i.DOWN
+var _queued_dir: Vector2i = Vector2i.ZERO
+
+signal stepped_on_stairs
 
 @onready var dungeon_map: TileMapLayer = get_node("../TileMapLayer")
 
+# ─── Input ───
+
 func _process(_delta: float) -> void:
+	if is_frozen:
+		return
+	var dir := _read_input()
+
 	if is_moving:
+		if dir != Vector2i.ZERO and dir != facing:
+			_queued_dir = dir
 		return
 
-	# 1. Capture current input
-	var input_dir = Vector2.ZERO
-	input_dir.x = Input.get_axis("ui_left", "ui_right")
-	input_dir.y = Input.get_axis("ui_up", "ui_down")
+	if dir != Vector2i.ZERO:
+		facing = dir
+		_queued_dir = Vector2i.ZERO
+		var run := Input.is_action_pressed("run")
+		_start_move(dir, dash_time if run else walk_time, run)
 
-	# 2. Unlock Logic: If the user releases the key or changes direction, clear the lock
-	if input_dir != input_locked_dir or input_dir == Vector2.ZERO:
-		input_locked_dir = Vector2.ZERO
+func _read_input() -> Vector2i:
+	var ix := int(sign(Input.get_action_strength("ui_right") - Input.get_action_strength("ui_left")))
+	var iy := int(sign(Input.get_action_strength("ui_down") - Input.get_action_strength("ui_up")))
+	return Vector2i(ix, iy)
 
-	# 3. Process movement only if there is input AND it's not locked
-	if input_dir != Vector2.ZERO and input_dir != input_locked_dir:
-		if Input.is_action_pressed("run"): # Assuming "run" is your B-button action
-			current_dir = input_dir
-			start_move(current_dir, dash_speed, true)
-		else:
-			is_auto_dashing = false
-			start_move(input_dir, normal_speed, false)
+# ─── Movement ───
 
-func start_move(direction: Vector2, duration: float, dashing: bool) -> void:
-	var target_tile = Vector2i((position / tile_size) + direction)
-	
-	if dungeon_map.get_cell_source_id(target_tile) == 0: # 0 is Floor
-		is_moving = true
-		is_auto_dashing = dashing
-		
-		var target_pos = position + (direction * tile_size)
-		var tween = create_tween()
-		tween.tween_property(self, "position", target_pos, duration)
-		tween.finished.connect(_on_move_completed)
-	else:
-		is_auto_dashing = false # Stop if wall hit
+func _start_move(dir: Vector2i, duration: float, dashing: bool) -> bool:
+	if dir == Vector2i.ZERO:
+		return false
 
-func _on_move_completed() -> void:
+	var origin := _current_tile()
+	var target := origin + dir
+
+	if not _can_move_to(origin, dir):
+		is_dashing = false
+		return false
+
+	is_moving = true
+	is_dashing = dashing
+
+	var tween := create_tween()
+	tween.tween_property(self, "position", _tile_center(target), duration)
+	tween.finished.connect(_on_move_finished)
+	return true
+
+func _on_move_finished() -> void:
 	is_moving = false
-	
-	if is_auto_dashing:
-		var current_tile = Vector2i(position / tile_size)
-		var tile_data = dungeon_map.get_cell_tile_data(current_tile)
-		var tile_type = ""
-		
-		if tile_data:
-			tile_type = tile_data.get_custom_data("type")
 
-		# STRATEGIC BRAKING LOGIC
-		var should_stop = false
-		
-		if tile_type == "room":
-			# In a room, only stop if the NEXT tile is a hallway (Exit) or a wall
-			if is_approaching_exit(current_dir) or is_approaching_wall(current_dir):
-				should_stop = true
-		else:
-			# In a hallway, use the intersection check we built before
-			if is_at_decision_point(current_dir) or is_approaching_wall(current_dir):
-				should_stop = true
+	# Check if we landed on stairs
+	if dungeon_map.get_tile_type(_current_tile()) == "stairs":
+		is_dashing = false
+		_queued_dir = Vector2i.ZERO
+		stepped_on_stairs.emit()
+		return
 
-		if should_stop:
-			stop_and_lock_input("Stopping point reached.")
-		else:
-			start_move(current_dir, dash_speed, true)
+	# Process queued direction change first
+	if is_dashing and _queued_dir != Vector2i.ZERO:
+		facing = _queued_dir
+		_queued_dir = Vector2i.ZERO
+		var run := Input.is_action_pressed("run")
+		if _start_move(facing, dash_time if run else walk_time, run):
+			return
 
-func is_approaching_exit(dir: Vector2) -> bool:
-	var next_tile = Vector2i((position / tile_size) + dir)
-	var next_data = dungeon_map.get_cell_tile_data(next_tile)
-	if next_data:
-		# If we are in a room and the next tile is a hallway, we stop at the door
-		return next_data.get_custom_data("type") == "hallway"
+	_queued_dir = Vector2i.ZERO
+
+	if not is_dashing:
+		return
+
+	# Dash auto-continue logic
+	if not Input.is_action_pressed("run"):
+		is_dashing = false
+		return
+
+	if _should_stop_dash():
+		is_dashing = false
+		return
+
+	_start_move(facing, dash_time, true)
+
+# ─── Dash braking (PMD rules) ───
+
+func _should_stop_dash() -> bool:
+	var tile := _current_tile()
+	var next := tile + facing
+	var tile_type: String = dungeon_map.get_tile_type(tile)
+
+	# Always stop before a wall
+	if not _can_move_to(tile, facing):
+		return true
+
+	if tile_type == "room":
+		# Stop at room exits: next tile is hallway, or adjacent perpendicular tile is hallway
+		if dungeon_map.get_tile_type(next) == "hallway":
+			return true
+		if _has_adjacent_hallway(tile, facing):
+			return true
+	else:
+		# In hallway: stop at intersections (branching path perpendicular to movement)
+		if _is_intersection(tile, facing):
+			return true
+		# Stop when entering a room
+		if dungeon_map.get_tile_type(next) == "room":
+			return true
+
 	return false
 
-func stop_and_lock_input(reason: String) -> void:
-	print(reason)
-	is_auto_dashing = false
-	# This is the key: we "ban" the current direction from triggering again in _process
-	input_locked_dir = current_dir 
+func _has_adjacent_hallway(tile: Vector2i, dir: Vector2i) -> bool:
+	# Check perpendicular neighbors for hallway tiles
+	var perps := _perpendiculars(dir)
+	for p in perps:
+		if dungeon_map.get_tile_type(tile + p) == "hallway":
+			return true
+	return false
 
-func is_at_decision_point(dir: Vector2) -> bool:
-	var current_tile = Vector2i(position / tile_size)
-	# If moving horizontal, check for floor above or below
+func _is_intersection(tile: Vector2i, dir: Vector2i) -> bool:
+	var perps := _perpendiculars(dir)
+	for p in perps:
+		if _is_walkable(tile + p):
+			return true
+	return false
+
+func _perpendiculars(dir: Vector2i) -> Array[Vector2i]:
+	if dir.x != 0 and dir.y != 0:
+		# Diagonal: perpendiculars are the two cardinal components
+		return [Vector2i(dir.x, 0), Vector2i(0, dir.y)]
 	if dir.x != 0:
-		return is_floor(current_tile + Vector2i.UP) or is_floor(current_tile + Vector2i.DOWN)
-	# If moving vertical, check for floor to the left or right
-	if dir.y != 0:
-		return is_floor(current_tile + Vector2i.LEFT) or is_floor(current_tile + Vector2i.RIGHT)
-	return false
+		return [Vector2i(0, -1), Vector2i(0, 1)]
+	return [Vector2i(-1, 0), Vector2i(1, 0)]
 
-func is_approaching_wall(dir: Vector2) -> bool:
-	var next_tile = Vector2i((position / tile_size) + dir)
-	return dungeon_map.get_cell_source_id(next_tile) != 0
+# ─── Tile helpers ───
 
-func is_floor(coords: Vector2i) -> bool:
-	return dungeon_map.get_cell_source_id(coords) == 0
+func _current_tile() -> Vector2i:
+	var half := Vector2(tile_size / 2.0, tile_size / 2.0)
+	return Vector2i(roundi((position.x - half.x) / tile_size), roundi((position.y - half.y) / tile_size))
+
+func _tile_center(tile: Vector2i) -> Vector2:
+	return Vector2(tile) * tile_size + Vector2(tile_size / 2.0, tile_size / 2.0)
+
+func _can_move_to(origin: Vector2i, dir: Vector2i) -> bool:
+	var target := origin + dir
+	if not _is_walkable(target):
+		return false
+	# Diagonal corner-cutting prevention: both adjacent cardinal tiles must be walkable
+	if dir.x != 0 and dir.y != 0:
+		if not _is_walkable(origin + Vector2i(dir.x, 0)):
+			return false
+		if not _is_walkable(origin + Vector2i(0, dir.y)):
+			return false
+	return true
+
+func _is_walkable(coords: Vector2i) -> bool:
+	return dungeon_map.is_walkable_tile(coords)
