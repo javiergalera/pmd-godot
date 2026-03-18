@@ -3,6 +3,7 @@ extends TileMapLayer
 ## Uses DungeonAlgorithm + DungeonData to generate floors, then renders to TileMapLayer.
 
 @export var tile_size: int = 24
+@export var menu_scene_path: String = "res://start_menu.tscn"
 
 # ─── Floor Properties (exported for inspector tweaking) ───
 @export_group("Floor Properties")
@@ -61,16 +62,48 @@ var _algorithm: DungeonAlgorithm
 var _gen_info: DungeonData.DungeonGenerationInfo
 var _current_floor: int = 1
 var _current_seed: int = 0
+var _run_seed: int = 0
+var _has_custom_seed: bool = false
 
 func _ready() -> void:
+	_apply_game_settings()
 	_current_floor = dungeon_floor
+	if _has_custom_seed:
+		_run_seed = _current_seed
+	else:
+		_run_seed = randi()
 	generate_dungeon()
 	var player = get_node_or_null("../Player")
 	if player:
 		player.stepped_on_stairs.connect(_on_player_stepped_on_stairs)
 
+func _apply_game_settings() -> void:
+	var settings = get_node_or_null("/root/GameSettings")
+	if settings == null:
+		return
+
+	var total_floors_cfg: int = maxi(int(settings.total_floors), 1)
+	var room_density_cfg: int = clampi(int(settings.room_density), 0, 16)
+	var floor_connectivity_cfg: int = clampi(int(settings.floor_connectivity), 0, 32)
+	var enemy_density_cfg: int = clampi(int(settings.enemy_density), 0, 32)
+	var item_density_cfg: int = clampi(int(settings.item_density), 0, 32)
+	var trap_density_cfg: int = clampi(int(settings.trap_density), 0, 32)
+
+	dungeon_floor = 1
+	floor_number = 1
+	n_floors_plus_one = total_floors_cfg + 1
+	room_density = room_density_cfg
+	floor_connectivity = floor_connectivity_cfg
+	enemy_density = enemy_density_cfg
+	item_density = item_density_cfg
+	trap_density = trap_density_cfg
+
+	_has_custom_seed = bool(settings.has_custom_seed)
+	if _has_custom_seed:
+		_current_seed = int(settings.seed_value)
+
 func generate_dungeon() -> void:
-	_current_seed = randi()
+	_current_seed = _run_seed + (_current_floor - 1)
 	seed(_current_seed)
 	tile_type_map.clear()
 	clear()
@@ -133,7 +166,7 @@ func generate_dungeon() -> void:
 
 	var floor_label = get_node_or_null("../CanvasLayer/FloorLabel")
 	if floor_label:
-		floor_label.text = "%dF" % _current_floor
+		floor_label.text = "%dF/%dF" % [_current_floor, _max_floor()]
 
 	var seed_label = get_node_or_null("../CanvasLayer/SeedLabel")
 	if seed_label:
@@ -212,16 +245,29 @@ func _on_player_stepped_on_stairs() -> void:
 	# Fade to black
 	var tween := create_tween()
 	tween.tween_property(fade_rect, "color:a", 1.0, 0.5)
-	tween.tween_callback(_advance_floor)
-	tween.tween_interval(0.3)
-	tween.tween_property(fade_rect, "color:a", 0.0, 0.5)
-	tween.tween_callback(func() -> void:
-		if player:
-			player.is_frozen = false
-	)
+	if _is_last_floor():
+		tween.tween_interval(0.3)
+		tween.tween_callback(_finish_dungeon)
+	else:
+		tween.tween_callback(_advance_floor)
+		tween.tween_interval(0.3)
+		tween.tween_property(fade_rect, "color:a", 0.0, 0.5)
+		tween.tween_callback(func() -> void:
+			if player:
+				player.is_frozen = false
+		)
 
 func _advance_floor() -> void:
 	_current_floor += 1
 	dungeon_floor = _current_floor
 	floor_number = _current_floor
 	generate_dungeon()
+
+func _max_floor() -> int:
+	return maxi(1, n_floors_plus_one - 1)
+
+func _is_last_floor() -> bool:
+	return _current_floor >= _max_floor()
+
+func _finish_dungeon() -> void:
+	get_tree().change_scene_to_file(menu_scene_path)

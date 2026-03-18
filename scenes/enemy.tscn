@@ -1,0 +1,13 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Texture2D" path="res://player.png" id="1_player_tex"]
+[ext_resource type="Script" path="res://scripts/enemy/enemy.gd" id="2_enemy_script"]
+[ext_resource type="Shader" path="res://scripts/enemy/enemy_tint.gdshader" id="3_enemy_shader"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_enemy"]
+shader = ExtResource("3_enemy_shader")
+
+[node name="Enemy" type="Sprite2D"]
+texture = ExtResource("1_player_tex")
+material = SubResource("ShaderMaterial_enemy")
+script = ExtResource("2_enemy_script")

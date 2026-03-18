@@ -1,10 +1,10 @@
-[gd_scene format=3 uid="uid://cjd6m3u7t2nan"]
+[gd_scene format=3 uid="uid://vnpvxp16ly8v"]
 
 [ext_resource type="Texture2D" uid="uid://dr43g4tkob1bf" path="res://player.png" id="1_35nvc"]
-[ext_resource type="Script" uid="uid://fhuqtq2bjul" path="res://player.gd" id="2_va1l4"]
+[ext_resource type="Script" path="res://player.gd" id="2_va1l4"]
 [ext_resource type="Texture2D" uid="uid://fra7lni7mxpo" path="res://floor.png" id="3_bxf26"]
 [ext_resource type="Texture2D" uid="uid://bhwgo7yt8ay2d" path="res://wall.png" id="4_35nvc"]
-[ext_resource type="Script" uid="uid://bsnm2vpdf473e" path="res://dungeon_generator.gd" id="5_t3g5x"]
+[ext_resource type="Script" path="res://dungeon_generator.gd" id="5_t3g5x"]
 [ext_resource type="Script" path="res://minimap.gd" id="6_minimap"]
 [ext_resource type="Texture2D" uid="uid://bxyu6jv0pxbv3" path="res://water.png" id="7_water"]
 [ext_resource type="Texture2D" uid="uid://fyat45d1140y" path="res://stairs.png" id="8_stairs"]
@@ -36,17 +36,18 @@ sources/1 = SubResource("TileSetAtlasSource_t3g5x")
 sources/2 = SubResource("TileSetAtlasSource_water")
 sources/3 = SubResource("TileSetAtlasSource_stairs")
 
+[sub_resource type="SystemFont" id="SystemFont_7o2lg"]
+subpixel_positioning = 0
+
 [sub_resource type="LabelSettings" id="LabelSettings_floor"]
-font_size = 16
+font = SubResource("SystemFont_7o2lg")
 font_color = Color(0, 0, 0, 1)
 outline_size = 4
-outline_color = Color(1, 1, 1, 1)
 
 [sub_resource type="LabelSettings" id="LabelSettings_seed"]
 font_size = 10
 font_color = Color(0, 0, 0, 1)
 outline_size = 2
-outline_color = Color(1, 1, 1, 1)
 
 [node name="Node2D" type="Node2D" unique_id=673025984]
 
@@ -63,18 +64,18 @@ zoom = Vector2(2, 2)
 tile_set = SubResource("TileSet_4bci2")
 script = ExtResource("5_t3g5x")
 
-[node name="CanvasLayer" type="CanvasLayer" parent="."]
+[node name="CanvasLayer" type="CanvasLayer" parent="." unique_id=1617947773]
 
-[node name="FloorLabel" type="Label" parent="CanvasLayer"]
-offset_left = 8.0
+[node name="FloorLabel" type="Label" parent="CanvasLayer" unique_id=676741240]
+offset_left = 9.0
 offset_top = 8.0
-offset_right = 100.0
-offset_bottom = 30.0
+offset_right = 101.0
+offset_bottom = 31.0
 text = "1F"
 label_settings = SubResource("LabelSettings_floor")
 uppercase = true
 
-[node name="SeedLabel" type="Label" parent="CanvasLayer"]
+[node name="SeedLabel" type="Label" parent="CanvasLayer" unique_id=2088867708]
 offset_left = 8.0
 offset_top = 28.0
 offset_right = 140.0
@@ -82,14 +83,17 @@ offset_bottom = 42.0
 text = "Seed: 0"
 label_settings = SubResource("LabelSettings_seed")
 
-[node name="FadeRect" type="ColorRect" parent="CanvasLayer"]
+[node name="FadeRect" type="ColorRect" parent="CanvasLayer" unique_id=2102002430]
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
-color = Color(0, 0, 0, 0)
+grow_horizontal = 2
+grow_vertical = 2
 mouse_filter = 2
+color = Color(0, 0, 0, 0)
 
-[node name="Minimap" type="Control" parent="CanvasLayer"]
+[node name="Minimap" type="Control" parent="CanvasLayer" unique_id=1735359731]
+layout_mode = 3
 anchors_preset = 1
 anchor_left = 1.0
 anchor_right = 1.0

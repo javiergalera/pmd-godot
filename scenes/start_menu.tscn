@@ -1,0 +1,203 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/ui/start_menu.gd" id="1_menu"]
+
+[node name="StartMenu" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_menu")
+
+[node name="Panel" type="Panel" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 96.0
+offset_top = 20.0
+offset_right = -96.0
+offset_bottom = -20.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="MarginContainer" type="MarginContainer" parent="Panel"]
+layout_mode = 0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 16.0
+offset_top = 16.0
+offset_right = -16.0
+offset_bottom = -16.0
+
+[node name="VBox" type="VBoxContainer" parent="Panel/MarginContainer"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="Title" type="Label" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+text = "Dungeon Generator"
+horizontal_alignment = 1
+
+[node name="Subtitle" type="Label" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+text = "Set the seed and key parameters before entering."
+horizontal_alignment = 1
+autowrap_mode = 3
+
+[node name="ScrollContainer" type="ScrollContainer" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="Fields" type="VBoxContainer" parent="Panel/MarginContainer/VBox/ScrollContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 6
+
+[node name="FloorsRow" type="HBoxContainer" parent="Panel/MarginContainer/VBox/ScrollContainer/Fields"]
+layout_mode = 2
+
+[node name="FloorsLabel" type="Label" parent="Panel/MarginContainer/VBox/ScrollContainer/Fields/FloorsRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Floors"
+
+[node name="FloorsSpin" type="SpinBox" parent="Panel/MarginContainer/VBox/ScrollContainer/Fields/FloorsRow"]
+unique_name_in_owner = true
+layout_mode = 2
+min_value = 1.0
+max_value = 99.0
+value = 3.0
+
+[node name="RoomDensityRow" type="HBoxContainer" parent="Panel/MarginContainer/VBox/ScrollContainer/Fields"]
+layout_mode = 2
+
+[node name="RoomDensityLabel" type="Label" parent="Panel/MarginContainer/VBox/ScrollContainer/Fields/RoomDensityRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Room density"
+
+[node name="RoomDensitySpin" type="SpinBox" parent="Panel/MarginContainer/VBox/ScrollContainer/Fields/RoomDensityRow"]
+unique_name_in_owner = true
+layout_mode = 2
+min_value = 0.0
+max_value = 16.0
+value = 6.0
+
+[node name="IrregularRoomRow" type="HBoxContainer" parent="Panel/MarginContainer/VBox/ScrollContainer/Fields"]
+layout_mode = 2
+
+[node name="IrregularRoomLabel" type="Label" parent="Panel/MarginContainer/VBox/ScrollContainer/Fields/IrregularRoomRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Irregular rooms %"
+
+[node name="IrregularRoomSpin" type="SpinBox" parent="Panel/MarginContainer/VBox/ScrollContainer/Fields/IrregularRoomRow"]
+unique_name_in_owner = true
+layout_mode = 2
+min_value = 0.0
+max_value = 100.0
+value = 35.0
+
+[node name="ConnectivityRow" type="HBoxContainer" parent="Panel/MarginContainer/VBox/ScrollContainer/Fields"]
+layout_mode = 2
+
+[node name="ConnectivityLabel" type="Label" parent="Panel/MarginContainer/VBox/ScrollContainer/Fields/ConnectivityRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Connectivity"
+
+[node name="FloorConnectivitySpin" type="SpinBox" parent="Panel/MarginContainer/VBox/ScrollContainer/Fields/ConnectivityRow"]
+unique_name_in_owner = true
+layout_mode = 2
+min_value = 0.0
+max_value = 32.0
+value = 15.0
+
+[node name="EnemyDensityRow" type="HBoxContainer" parent="Panel/MarginContainer/VBox/ScrollContainer/Fields"]
+layout_mode = 2
+
+[node name="EnemyDensityLabel" type="Label" parent="Panel/MarginContainer/VBox/ScrollContainer/Fields/EnemyDensityRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Enemy density"
+
+[node name="EnemyDensitySpin" type="SpinBox" parent="Panel/MarginContainer/VBox/ScrollContainer/Fields/EnemyDensityRow"]
+unique_name_in_owner = true
+layout_mode = 2
+min_value = 0.0
+max_value = 32.0
+value = 10.0
+
+[node name="ItemDensityRow" type="HBoxContainer" parent="Panel/MarginContainer/VBox/ScrollContainer/Fields"]
+layout_mode = 2
+
+[node name="ItemDensityLabel" type="Label" parent="Panel/MarginContainer/VBox/ScrollContainer/Fields/ItemDensityRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Item density"
+
+[node name="ItemDensitySpin" type="SpinBox" parent="Panel/MarginContainer/VBox/ScrollContainer/Fields/ItemDensityRow"]
+unique_name_in_owner = true
+layout_mode = 2
+min_value = 0.0
+max_value = 32.0
+value = 5.0
+
+[node name="TrapDensityRow" type="HBoxContainer" parent="Panel/MarginContainer/VBox/ScrollContainer/Fields"]
+layout_mode = 2
+
+[node name="TrapDensityLabel" type="Label" parent="Panel/MarginContainer/VBox/ScrollContainer/Fields/TrapDensityRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Trap density"
+
+[node name="TrapDensitySpin" type="SpinBox" parent="Panel/MarginContainer/VBox/ScrollContainer/Fields/TrapDensityRow"]
+unique_name_in_owner = true
+layout_mode = 2
+min_value = 0.0
+max_value = 32.0
+value = 5.0
+
+[node name="RoomObstacleRow" type="HBoxContainer" parent="Panel/MarginContainer/VBox/ScrollContainer/Fields"]
+layout_mode = 2
+
+[node name="RoomObstacleLabel" type="Label" parent="Panel/MarginContainer/VBox/ScrollContainer/Fields/RoomObstacleRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Interior columns %"
+
+[node name="RoomObstacleSpin" type="SpinBox" parent="Panel/MarginContainer/VBox/ScrollContainer/Fields/RoomObstacleRow"]
+unique_name_in_owner = true
+layout_mode = 2
+min_value = 0.0
+max_value = 100.0
+value = 8.0
+
+[node name="SeedRow" type="HBoxContainer" parent="Panel/MarginContainer/VBox/ScrollContainer/Fields"]
+layout_mode = 2
+
+[node name="SeedLabel" type="Label" parent="Panel/MarginContainer/VBox/ScrollContainer/Fields/SeedRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Seed"
+
+[node name="SeedInput" type="LineEdit" parent="Panel/MarginContainer/VBox/ScrollContainer/Fields/SeedRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="ErrorLabel" type="Label" parent="Panel/MarginContainer/VBox/ScrollContainer/Fields"]
+unique_name_in_owner = true
+layout_mode = 2
+modulate = Color(1, 0.3, 0.3, 1)
+autowrap_mode = 3
+
+[node name="StartButton" type="Button" parent="Panel/MarginContainer/VBox"]
+layout_mode = 2
+text = "Enter the dungeon"
+
+[connection signal="pressed" from="Panel/MarginContainer/VBox/StartButton" to="." method="_on_start_button_pressed"]
