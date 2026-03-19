@@ -50,8 +50,8 @@ extends TileMapLayer
 
 @export_group("Advanced Settings")
 @export var allow_wall_maze_room_generation: bool = false
-@export var fix_dead_end_validation_error: bool = false
-@export var fix_generate_outer_rooms_floor_error: bool = false
+@export var fix_dead_end_validation_error: bool = true
+@export var fix_generate_outer_rooms_floor_error: bool = true
 
 # TileSet source IDs
 const TILE_SOURCE_FLOOR := 0
@@ -65,6 +65,7 @@ var _gen_info: DungeonData.DungeonGenerationInfo
 var _current_floor: int = 1
 var _current_seed: int = 0
 var _run_seed: int = 0
+var _floor_seeds: Array[int] = []
 var _has_custom_seed: bool = false
 var _transitioning: bool = false
 
@@ -75,10 +76,18 @@ func _ready() -> void:
 		_run_seed = _current_seed
 	else:
 		_run_seed = randi()
+	_generate_floor_seeds()
+	_prevalidate_all_floors()
 	generate_dungeon()
 	var player = get_node_or_null("../Player")
 	if player:
 		player.stepped_on_stairs.connect(_on_player_stepped_on_stairs)
+
+func _generate_floor_seeds() -> void:
+	_floor_seeds.clear()
+	seed(_run_seed)
+	for i in range(_max_floor()):
+		_floor_seeds.append(randi())
 
 func _apply_game_settings() -> void:
 	var settings = get_node_or_null("/root/GameSettings")
@@ -110,12 +119,37 @@ func _apply_game_settings() -> void:
 		_current_seed = int(settings.seed_value)
 
 func generate_dungeon() -> void:
-	_current_seed = _run_seed + (_current_floor - 1)
+	_current_seed = _floor_seeds[_current_floor - 1]
 	seed(_current_seed)
 	tile_type_map.clear()
 	clear()
 	TurnManager.reset()
 
+	var params := _build_generation_params(_current_seed)
+
+	_algorithm = DungeonAlgorithm.new()
+	var tiles: Array = _algorithm.generate_dungeon(params.fp, params.dd, params.gc, params.adv)
+	_gen_info = _algorithm.get_generation_info()
+
+	var enemy_spawn_tiles := _collect_enemy_spawns(tiles)
+	_render_tiles(tiles)
+	_refresh_tile_overlay()
+	_spawn_player()
+	_spawn_enemies(enemy_spawn_tiles)
+
+	var minimap = get_node_or_null("../CanvasLayer/Minimap")
+	if minimap:
+		minimap.reset()
+
+	var floor_label = get_node_or_null("../CanvasLayer/FloorLabel")
+	if floor_label:
+		floor_label.text = "%dF/%dF" % [_current_floor, _max_floor()]
+
+	var seed_label = get_node_or_null("../CanvasLayer/SeedLabel")
+	if seed_label:
+		seed_label.text = "Seed: %d" % _run_seed
+
+func _build_generation_params(gen_seed: int) -> Dictionary:
 	var fp := DungeonData.FloorProperties.new()
 	fp.layout = layout
 	fp.room_density = room_density
@@ -138,7 +172,7 @@ func generate_dungeon() -> void:
 	fp.hidden_stairs_type = hidden_stairs_type
 	fp.hidden_stairs_spawn_chance = hidden_stairs_spawn_chance
 	fp.room_obstacle_density = room_obstacle_density
-	fp.generation_seed = _current_seed
+	fp.generation_seed = gen_seed
 	fp.room_flags.f_room_imperfections = f_room_imperfections
 	fp.room_flags.f_secondary_terrain_generation = f_secondary_terrain_generation
 
@@ -164,27 +198,35 @@ func generate_dungeon() -> void:
 	adv.fix_dead_end_validation_error = fix_dead_end_validation_error
 	adv.fix_generate_outer_rooms_floor_error = fix_generate_outer_rooms_floor_error
 
-	_algorithm = DungeonAlgorithm.new()
-	var tiles: Array = _algorithm.generate_dungeon(fp, dd, gc, adv)
-	_gen_info = _algorithm.get_generation_info()
+	return {"fp": fp, "dd": dd, "gc": gc, "adv": adv}
 
-	var enemy_spawn_tiles := _collect_enemy_spawns(tiles)
-	_render_tiles(tiles)
-	_refresh_tile_overlay()
-	_spawn_player()
-	_spawn_enemies(enemy_spawn_tiles)
-
-	var minimap = get_node_or_null("../CanvasLayer/Minimap")
-	if minimap:
-		minimap.reset()
-
-	var floor_label = get_node_or_null("../CanvasLayer/FloorLabel")
-	if floor_label:
-		floor_label.text = "%dF/%dF" % [_current_floor, _max_floor()]
-
-	var seed_label = get_node_or_null("../CanvasLayer/SeedLabel")
-	if seed_label:
-		seed_label.text = "Seed: %d" % _current_seed
+func _prevalidate_all_floors() -> void:
+	var max_f := _max_floor()
+	for f in range(1, max_f + 1):
+		var f_seed := _floor_seeds[f - 1]
+		seed(f_seed)
+		var params := _build_generation_params(f_seed)
+		var algo := DungeonAlgorithm.new()
+		var tiles: Array = algo.generate_dungeon(params.fp, params.dd, params.gc, params.adv)
+		var info := algo.get_generation_info()
+		# Validate tiles array
+		if tiles.is_empty() or tiles.size() != DungeonData.FLOOR_MAX_X:
+			push_error("  Floor %d: INVALID tiles (size=%d, expected=%d)" % [f, tiles.size(), DungeonData.FLOOR_MAX_X])
+			continue
+		# Validate stairs spawn
+		var has_stairs := false
+		for x in range(DungeonData.FLOOR_MAX_X):
+			for y in range(DungeonData.FLOOR_MAX_Y):
+				if tiles[x][y].spawn_or_visibility_flags.f_stairs:
+					has_stairs = true
+					break
+			if has_stairs:
+				break
+		if not has_stairs and f < max_f:
+			push_warning("  Floor %d: No stairs found!" % f)
+		# Validate player spawn
+		if info.player_spawn_x < 0 or info.player_spawn_y < 0:
+			push_warning("  Floor %d: Invalid player spawn (%d, %d)" % [f, info.player_spawn_x, info.player_spawn_y])
 
 
 func _render_tiles(tiles: Array) -> void:

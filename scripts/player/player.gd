@@ -1,4 +1,4 @@
-extends Sprite2D
+extends AnimatedSprite2D
 ## PMD-style 8-directional tile movement with walk, dash, and turn system.
 ##
 ## Walk:  Hold direction → move tile by tile. Release → stop.
@@ -10,6 +10,50 @@ extends Sprite2D
 ##        Normal walking (without Shift) is always available.
 ## Ctrl:  Hold Ctrl + direction → rotate facing without moving (no turn).
 ## Space: Attack the tile you're facing (consumes a turn).
+
+const _ANIM_NAMES: Dictionary = {
+	Vector2i(0, 1): &"walk_down",
+	Vector2i(1, 1): &"walk_down_right",
+	Vector2i(1, 0): &"walk_right",
+	Vector2i(1, -1): &"walk_up_right",
+	Vector2i(0, -1): &"walk_up",
+	Vector2i(-1, -1): &"walk_up_left",
+	Vector2i(-1, 0): &"walk_left",
+	Vector2i(-1, 1): &"walk_down_left",
+}
+
+const _IDLE_NAMES: Dictionary = {
+	Vector2i(0, 1): &"idle_down",
+	Vector2i(1, 1): &"idle_down_right",
+	Vector2i(1, 0): &"idle_right",
+	Vector2i(1, -1): &"idle_up_right",
+	Vector2i(0, -1): &"idle_up",
+	Vector2i(-1, -1): &"idle_up_left",
+	Vector2i(-1, 0): &"idle_left",
+	Vector2i(-1, 1): &"idle_down_left",
+}
+
+const _ATTACK_NAMES: Dictionary = {
+	Vector2i(0, 1): &"attack_down",
+	Vector2i(1, 1): &"attack_down_right",
+	Vector2i(1, 0): &"attack_right",
+	Vector2i(1, -1): &"attack_up_right",
+	Vector2i(0, -1): &"attack_up",
+	Vector2i(-1, -1): &"attack_up_left",
+	Vector2i(-1, 0): &"attack_left",
+	Vector2i(-1, 1): &"attack_down_left",
+}
+
+const _HURT_NAMES: Dictionary = {
+	Vector2i(0, 1): &"hurt_down",
+	Vector2i(1, 1): &"hurt_down_right",
+	Vector2i(1, 0): &"hurt_right",
+	Vector2i(1, -1): &"hurt_up_right",
+	Vector2i(0, -1): &"hurt_up",
+	Vector2i(-1, -1): &"hurt_up_left",
+	Vector2i(-1, 0): &"hurt_left",
+	Vector2i(-1, 1): &"hurt_down_left",
+}
 
 @export var tile_size: int = 24
 @export var walk_time: float = 0.12
@@ -24,6 +68,7 @@ var facing: Vector2i = Vector2i.DOWN
 var _dash_active: bool = false           # currently auto-running
 var _dash_dir: Vector2i = Vector2i.ZERO  # locked dash heading
 var _run_held_prev: bool = false         # for fresh-press detection
+var _pending_continuation: Callable = Callable()
 
 signal stepped_on_stairs
 
@@ -32,6 +77,8 @@ signal stepped_on_stairs
 
 func _ready() -> void:
 	_update_facing_arrow()
+	play(_IDLE_NAMES.get(facing, &"idle_down"))
+	TurnManager.enemy_phase_finished.connect(_on_enemy_phase_finished)
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 #  INPUT LOOP — runs every frame, decides what to do when idle
@@ -50,6 +97,7 @@ func _process(_delta: float) -> void:
 	if Input.is_key_pressed(KEY_CTRL):
 		if dir != Vector2i.ZERO:
 			_set_facing(dir)
+			_stop_anim()
 		_run_held_prev = run_held
 		return
 
@@ -62,6 +110,7 @@ func _process(_delta: float) -> void:
 				_do_move(dir, dash_time)
 			else:
 				_stop_dash()
+				_stop_anim()
 			_run_held_prev = run_held
 			return
 
@@ -70,6 +119,8 @@ func _process(_delta: float) -> void:
 		_set_facing(dir)
 		if _can_move_to(_current_tile(), dir):
 			_do_move(dir, walk_time)
+		else:
+			_stop_anim()
 
 	_run_held_prev = run_held
 
@@ -85,6 +136,12 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _do_move(dir: Vector2i, duration: float) -> void:
 	is_moving = true
+	speed_scale = 2.0 if duration == dash_time else 1.0
+	var anim_name: StringName = _ANIM_NAMES.get(facing, &"walk_down")
+	if animation != anim_name:
+		play(anim_name)
+	elif not is_playing():
+		play(anim_name)
 	var target := _current_tile() + dir
 	var tween := create_tween()
 	tween.tween_property(self, "position", _tile_center(target), duration)
@@ -96,21 +153,20 @@ func _on_move_finished() -> void:
 	# ── Stairs ──
 	if dungeon_map.get_tile_type(_current_tile()) == "stairs":
 		_stop_dash()
+		_stop_anim()
 		stepped_on_stairs.emit()
 		return
 
-	# ── Turn consumed → TurnManager orchestrates all phases ──
-	var was_dashing := _dash_active
-	var speed := dash_time if was_dashing else walk_time
-	TurnManager.end_player_turn(speed)
-
-	# ── Dash continuation (chained immediately for seamless auto-run) ──
+	# ── Store continuation for after enemy phase ──
 	if _dash_active:
-		_continue_dash()
-		return
+		_pending_continuation = _continue_dash
+	else:
+		_pending_continuation = _continue_walk
 
-	# ── Walk continuation (chain while direction held) ──
-	_continue_walk()
+	# ── Freeze until enemy phase completes ──
+	is_frozen = true
+	var speed := dash_time if _dash_active else walk_time
+	TurnManager.end_player_turn(speed)
 
 func _continue_dash() -> void:
 	# Shift released → end dash
@@ -134,6 +190,7 @@ func _continue_dash() -> void:
 		return
 
 	# Continue auto-run
+	_set_facing(_dash_dir)
 	_do_move(_dash_dir, dash_time)
 
 func _continue_walk() -> void:
@@ -164,15 +221,46 @@ func _stop_dash() -> void:
 	_dash_active = false
 	_dash_dir = Vector2i.ZERO
 
+func _stop_anim() -> void:
+	speed_scale = 1.0
+	play(_IDLE_NAMES.get(facing, &"idle_down"))
+func _on_enemy_phase_finished() -> void:
+	is_frozen = false
+	var continuation := _pending_continuation
+	_pending_continuation = Callable()
+	if continuation.is_valid():
+		continuation.call()
+	if not is_moving:
+		_stop_anim()
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 #  COMBAT
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 func _do_attack() -> void:
+	is_frozen = true
 	var attack_tile := _current_tile() + facing
-	if enemy_manager != null and enemy_manager.has_method("kill_enemy_at"):
-		enemy_manager.kill_enemy_at(attack_tile)
+	var killed := false
+	if enemy_manager and enemy_manager.has_method("kill_enemy_at"):
+		killed = await enemy_manager.kill_enemy_at(attack_tile, self, _current_tile())
+	if not killed:
+		play_attack()
+		await animation_finished
+	_stop_anim()
+	_pending_continuation = Callable()
 	TurnManager.end_player_turn(walk_time)
+
+func play_attack() -> void:
+	play(_ATTACK_NAMES.get(facing, &"attack_down"))
+
+func play_hurt() -> void:
+	play(_HURT_NAMES.get(facing, &"hurt_down"))
+
+func face_toward(target_tile: Vector2i) -> void:
+	var dir := (target_tile - _current_tile()).sign()
+	if dir != Vector2i.ZERO:
+		facing = dir
+		_update_facing_arrow()
+	_stop_anim()
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 #  FACING

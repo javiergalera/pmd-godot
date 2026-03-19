@@ -66,16 +66,13 @@ func _pos_is_out_of_bounds(x: int, y: int) -> bool:
 
 func _reset_floor() -> void:
 	dungeon_d.list_tiles = []
+	var max_x := DungeonData.FLOOR_MAX_X - 1
+	var max_y := DungeonData.FLOOR_MAX_Y - 1
 	for x in range(DungeonData.FLOOR_MAX_X):
 		var col: Array = []
 		for y in range(DungeonData.FLOOR_MAX_Y):
 			var t := DungeonData.Tile.new()
-			if (
-				_pos_is_out_of_bounds(x - 1, y) or _pos_is_out_of_bounds(x, y - 1) or
-				_pos_is_out_of_bounds(x + 1, y) or _pos_is_out_of_bounds(x, y + 1) or
-				_pos_is_out_of_bounds(x - 1, y - 1) or _pos_is_out_of_bounds(x - 1, y + 1) or
-				_pos_is_out_of_bounds(x + 1, y - 1) or _pos_is_out_of_bounds(x + 1, y + 1)
-			):
+			if x == 0 or x == max_x or y == 0 or y == max_y:
 				t.terrain_flags.f_impassable_wall = true
 			col.append(t)
 		dungeon_d.list_tiles.append(col)
@@ -1912,8 +1909,9 @@ func _reset_inner_boundary_tile_rows() -> void:
 func _ensure_impassable_tiles_are_walls() -> void:
 	for x in range(DungeonData.FLOOR_MAX_X):
 		for y in range(DungeonData.FLOOR_MAX_Y):
-			if dungeon_d.list_tiles[x][y].terrain_flags.f_impassable_wall:
-				dungeon_d.list_tiles[x][y].terrain_flags.terrain_type = DungeonData.TerrainType.TERRAIN_WALL
+			var tile: DungeonData.Tile = dungeon_d.list_tiles[x][y]
+			if tile.terrain_flags.f_impassable_wall:
+				tile.terrain_flags.terrain_type = DungeonData.TerrainType.TERRAIN_WALL
 
 func _set_secondary_terrain_on_wall(tile: DungeonData.Tile) -> void:
 	if tile.terrain_flags.f_impassable_wall or tile.terrain_flags.terrain_type != DungeonData.TerrainType.TERRAIN_WALL:
@@ -1923,7 +1921,8 @@ func _set_secondary_terrain_on_wall(tile: DungeonData.Tile) -> void:
 func _finalize_junctions() -> void:
 	for x in range(DungeonData.FLOOR_MAX_X):
 		for y in range(DungeonData.FLOOR_MAX_Y):
-			if dungeon_d.list_tiles[x][y].terrain_flags.terrain_type == DungeonData.TerrainType.TERRAIN_NORMAL and dungeon_d.list_tiles[x][y].room_index == 0xFF:
+			var tile: DungeonData.Tile = dungeon_d.list_tiles[x][y]
+			if tile.terrain_flags.terrain_type == DungeonData.TerrainType.TERRAIN_NORMAL and tile.room_index == 0xFF:
 				# Hallway tile - check for adjacent rooms
 				if x > 0 and dungeon_d.list_tiles[x - 1][y].room_index != 0xFF and dungeon_d.list_tiles[x - 1][y].terrain_flags.terrain_type == DungeonData.TerrainType.TERRAIN_NORMAL:
 					dungeon_d.list_tiles[x - 1][y].terrain_flags.f_natural_junction = true
@@ -1998,8 +1997,14 @@ func _generate_secondary_terrain_formations(test_flag: bool, floor_props: Dungeo
 				pt_y += dir_y
 				if pt_y < 0 or pt_y >= DungeonData.FLOOR_MAX_Y:
 					break
+				if pt_x < 0 or pt_x >= DungeonData.FLOOR_MAX_X:
+					break
 
 			if done:
+				break
+
+			# Check bounds immediately - if we went out of map, stop
+			if pt_x < 0 or pt_x >= DungeonData.FLOOR_MAX_X or pt_y < 0 or pt_y >= DungeonData.FLOOR_MAX_Y:
 				break
 
 			steps_until_lake -= 1
@@ -2047,11 +2052,6 @@ func _generate_secondary_terrain_formations(test_flag: bool, floor_props: Dungeo
 					if rng.rand_int(100) < 50: dir_x = -1
 					else: dir_x = 1
 					dir_y = 0
-
-			if pt_y < 0 or pt_y >= DungeonData.FLOOR_MAX_Y:
-				done = true
-
-	# Standalone lakes
 	for _i in range(floor_props.secondary_terrain_density):
 		var attempts := 0
 		var rnd_x := 0
@@ -2370,10 +2370,11 @@ func _spawn_enemies(floor_props: DungeonData.FloorProperties, is_empty_monster_h
 func _resolve_invalid_spawns() -> void:
 	for x in range(DungeonData.FLOOR_MAX_X):
 		for y in range(DungeonData.FLOOR_MAX_Y):
-			if dungeon_d.list_tiles[x][y].terrain_flags.terrain_type != DungeonData.TerrainType.TERRAIN_NORMAL:
-				dungeon_d.list_tiles[x][y].spawn_or_visibility_flags.f_trap = false
-				if dungeon_d.list_tiles[x][y].terrain_flags.f_impassable_wall:
-					dungeon_d.list_tiles[x][y].spawn_or_visibility_flags.f_item = false
+			var tile: DungeonData.Tile = dungeon_d.list_tiles[x][y]
+			if tile.terrain_flags.terrain_type != DungeonData.TerrainType.TERRAIN_NORMAL:
+				tile.spawn_or_visibility_flags.f_trap = false
+				if tile.terrain_flags.f_impassable_wall:
+					tile.spawn_or_visibility_flags.f_item = false
 
 # ─── StairsAlwaysReachable ───
 
@@ -2383,58 +2384,83 @@ func _stairs_always_reachable(x_stairs: int, y_stairs: int, mark_unreachable: bo
 		var col: Array = []
 		for y in range(DungeonData.FLOOR_MAX_Y):
 			var f := DungeonData.StairsReachableFlags.new()
+			var tile: DungeonData.Tile = dungeon_d.list_tiles[x][y]
 			if mark_unreachable:
-				dungeon_d.list_tiles[x][y].terrain_flags.f_unreachable_from_stairs = false
-			if dungeon_d.list_tiles[x][y].terrain_flags.terrain_type != DungeonData.TerrainType.TERRAIN_NORMAL:
-				if not dungeon_d.list_tiles[x][y].terrain_flags.f_corner_cuttable:
+				tile.terrain_flags.f_unreachable_from_stairs = false
+			if tile.terrain_flags.terrain_type != DungeonData.TerrainType.TERRAIN_NORMAL:
+				if not tile.terrain_flags.f_corner_cuttable:
 					f.f_cannot_corner_cut = true
-			if dungeon_d.list_tiles[x][y].terrain_flags.terrain_type == DungeonData.TerrainType.TERRAIN_SECONDARY:
-				if not dungeon_d.list_tiles[x][y].terrain_flags.f_corner_cuttable:
+			if tile.terrain_flags.terrain_type == DungeonData.TerrainType.TERRAIN_SECONDARY:
+				if not tile.terrain_flags.f_corner_cuttable:
 					f.f_secondary_terrain_cannot_corner_cut = true
 			col.append(f)
 		test.append(col)
 
-	test[x_stairs][y_stairs].f_in_visit_queue = true
 	test[x_stairs][y_stairs].f_starting_point = true
+	test[x_stairs][y_stairs].f_visited = true
 
-	var checked := 1
-	while checked > 0:
-		checked = 0
-		for x in range(DungeonData.FLOOR_MAX_X):
-			for y in range(DungeonData.FLOOR_MAX_Y):
-				if not test[x][y].f_visited and test[x][y].f_in_visit_queue:
-					test[x][y].f_in_visit_queue = false
-					test[x][y].f_visited = true
-					checked += 1
+	var queue: Array[Vector2i] = [Vector2i(x_stairs, y_stairs)]
+	var head := 0
 
-					# Cardinal directions
-					if x > 0 and not test[x-1][y].f_cannot_corner_cut and not test[x-1][y].f_secondary_terrain_cannot_corner_cut and not test[x-1][y].f_visited:
-						test[x-1][y].f_in_visit_queue = true
-					if y > 0 and not test[x][y-1].f_cannot_corner_cut and not test[x][y-1].f_secondary_terrain_cannot_corner_cut and not test[x][y-1].f_visited:
-						test[x][y-1].f_in_visit_queue = true
-					if x < DungeonData.FLOOR_MAX_X-1 and not test[x+1][y].f_cannot_corner_cut and not test[x+1][y].f_secondary_terrain_cannot_corner_cut and not test[x+1][y].f_visited:
-						test[x+1][y].f_in_visit_queue = true
-					if y < DungeonData.FLOOR_MAX_Y-1 and not test[x][y+1].f_cannot_corner_cut and not test[x][y+1].f_secondary_terrain_cannot_corner_cut and not test[x][y+1].f_visited:
-						test[x][y+1].f_in_visit_queue = true
+	while head < queue.size():
+		var pos := queue[head]
+		head += 1
+		var x := pos.x
+		var y := pos.y
 
-					# Diagonal directions
-					if x > 0 and y > 0 and not test[x-1][y-1].f_cannot_corner_cut and not test[x-1][y-1].f_secondary_terrain_cannot_corner_cut and not test[x-1][y-1].f_unknown_field_0x2 and not test[x-1][y-1].f_visited and not test[x][y-1].f_cannot_corner_cut and not test[x-1][y].f_cannot_corner_cut:
-						test[x-1][y-1].f_in_visit_queue = true
-					if x < DungeonData.FLOOR_MAX_X-1 and y > 0 and not test[x+1][y-1].f_cannot_corner_cut and not test[x+1][y-1].f_secondary_terrain_cannot_corner_cut and not test[x+1][y-1].f_unknown_field_0x2 and not test[x+1][y-1].f_visited and not test[x][y-1].f_cannot_corner_cut and not test[x+1][y].f_cannot_corner_cut:
-						test[x+1][y-1].f_in_visit_queue = true
-					if x > 0 and y < DungeonData.FLOOR_MAX_Y-1 and not test[x-1][y+1].f_cannot_corner_cut and not test[x-1][y+1].f_secondary_terrain_cannot_corner_cut and not test[x-1][y+1].f_unknown_field_0x2 and not test[x-1][y+1].f_visited and not test[x][y+1].f_cannot_corner_cut and not test[x-1][y].f_cannot_corner_cut:
-						test[x-1][y+1].f_in_visit_queue = true
-					if x < DungeonData.FLOOR_MAX_X-1 and y < DungeonData.FLOOR_MAX_Y-1 and not test[x+1][y+1].f_cannot_corner_cut and not test[x+1][y+1].f_secondary_terrain_cannot_corner_cut and not test[x+1][y+1].f_unknown_field_0x2 and not test[x+1][y+1].f_visited and not test[x][y+1].f_cannot_corner_cut and not test[x+1][y].f_cannot_corner_cut:
-						test[x+1][y+1].f_in_visit_queue = true
+		# Cardinal directions
+		if x > 0:
+			var t: DungeonData.StairsReachableFlags = test[x - 1][y]
+			if not t.f_cannot_corner_cut and not t.f_secondary_terrain_cannot_corner_cut and not t.f_visited:
+				t.f_visited = true
+				queue.append(Vector2i(x - 1, y))
+		if y > 0:
+			var t: DungeonData.StairsReachableFlags = test[x][y - 1]
+			if not t.f_cannot_corner_cut and not t.f_secondary_terrain_cannot_corner_cut and not t.f_visited:
+				t.f_visited = true
+				queue.append(Vector2i(x, y - 1))
+		if x < DungeonData.FLOOR_MAX_X - 1:
+			var t: DungeonData.StairsReachableFlags = test[x + 1][y]
+			if not t.f_cannot_corner_cut and not t.f_secondary_terrain_cannot_corner_cut and not t.f_visited:
+				t.f_visited = true
+				queue.append(Vector2i(x + 1, y))
+		if y < DungeonData.FLOOR_MAX_Y - 1:
+			var t: DungeonData.StairsReachableFlags = test[x][y + 1]
+			if not t.f_cannot_corner_cut and not t.f_secondary_terrain_cannot_corner_cut and not t.f_visited:
+				t.f_visited = true
+				queue.append(Vector2i(x, y + 1))
+
+		# Diagonal directions
+		if x > 0 and y > 0:
+			var t: DungeonData.StairsReachableFlags = test[x - 1][y - 1]
+			if not t.f_cannot_corner_cut and not t.f_secondary_terrain_cannot_corner_cut and not t.f_unknown_field_0x2 and not t.f_visited and not test[x][y - 1].f_cannot_corner_cut and not test[x - 1][y].f_cannot_corner_cut:
+				t.f_visited = true
+				queue.append(Vector2i(x - 1, y - 1))
+		if x < DungeonData.FLOOR_MAX_X - 1 and y > 0:
+			var t: DungeonData.StairsReachableFlags = test[x + 1][y - 1]
+			if not t.f_cannot_corner_cut and not t.f_secondary_terrain_cannot_corner_cut and not t.f_unknown_field_0x2 and not t.f_visited and not test[x][y - 1].f_cannot_corner_cut and not test[x + 1][y].f_cannot_corner_cut:
+				t.f_visited = true
+				queue.append(Vector2i(x + 1, y - 1))
+		if x > 0 and y < DungeonData.FLOOR_MAX_Y - 1:
+			var t: DungeonData.StairsReachableFlags = test[x - 1][y + 1]
+			if not t.f_cannot_corner_cut and not t.f_secondary_terrain_cannot_corner_cut and not t.f_unknown_field_0x2 and not t.f_visited and not test[x][y + 1].f_cannot_corner_cut and not test[x - 1][y].f_cannot_corner_cut:
+				t.f_visited = true
+				queue.append(Vector2i(x - 1, y + 1))
+		if x < DungeonData.FLOOR_MAX_X - 1 and y < DungeonData.FLOOR_MAX_Y - 1:
+			var t: DungeonData.StairsReachableFlags = test[x + 1][y + 1]
+			if not t.f_cannot_corner_cut and not t.f_secondary_terrain_cannot_corner_cut and not t.f_unknown_field_0x2 and not t.f_visited and not test[x][y + 1].f_cannot_corner_cut and not test[x + 1][y].f_cannot_corner_cut:
+				t.f_visited = true
+				queue.append(Vector2i(x + 1, y + 1))
 
 	# Check all walkable tiles were visited
 	for x in range(DungeonData.FLOOR_MAX_X):
 		for y in range(DungeonData.FLOOR_MAX_Y):
-			if dungeon_d.list_tiles[x][y].terrain_flags.terrain_type == DungeonData.TerrainType.TERRAIN_NORMAL and not test[x][y].f_visited:
+			var tile: DungeonData.Tile = dungeon_d.list_tiles[x][y]
+			if tile.terrain_flags.terrain_type == DungeonData.TerrainType.TERRAIN_NORMAL and not test[x][y].f_visited:
 				if mark_unreachable:
-					dungeon_d.list_tiles[x][y].terrain_flags.f_unreachable_from_stairs = true
+					tile.terrain_flags.f_unreachable_from_stairs = true
 				else:
-					if not dungeon_d.list_tiles[x][y].terrain_flags.f_unbreakable:
+					if not tile.terrain_flags.f_unbreakable:
 						return false
 	return true
 
@@ -2558,11 +2584,12 @@ func _generate_floor(floor_props: DungeonData.FloorProperties) -> Array:
 				var room_tiles := 0
 				for x in range(DungeonData.FLOOR_MAX_X):
 					for y in range(DungeonData.FLOOR_MAX_Y):
-						if dungeon_d.list_tiles[x][y].terrain_flags.terrain_type == DungeonData.TerrainType.TERRAIN_NORMAL:
-							if dungeon_d.list_tiles[x][y].room_index < 0xF0:
+						var tile: DungeonData.Tile = dungeon_d.list_tiles[x][y]
+						if tile.terrain_flags.terrain_type == DungeonData.TerrainType.TERRAIN_NORMAL:
+							if tile.room_index < 0xF0:
 								room_tiles += 1
-								if dungeon_d.list_tiles[x][y].room_index < 0x40:
-									room[dungeon_d.list_tiles[x][y].room_index] = true
+								if tile.room_index < 0x40:
+									room[tile.room_index] = true
 
 				var num_rooms := 0
 				for r in room:

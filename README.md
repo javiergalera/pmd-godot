@@ -7,8 +7,8 @@ A Pokémon Mystery Dungeon-style turn-based dungeon crawler built in **Godot 4.6
 - **Procedural Dungeon Generation** — Based on the original PMD:EoS algorithm with 16 layout types, configurable room density, hallway connectivity, secondary terrain (water), monster houses, Kecleon shops, traps, items, and hidden stairs. Extended with custom room shapes (circles, ovals, columns) beyond the original algorithm. Fully deterministic: same seed = same dungeon.
 - **8-Directional Tile Movement** — Walk, dash (auto-run with Shift), and rotate in place (Ctrl). Dash stops automatically at walls, enemies, room/hallway transitions, and intersections.
 - **Turn-Based System** — Signal-driven TurnManager autoload orchestrates player actions, enemy phases, and turn-end events. Each move, dash step, or attack consumes one turn.
-- **Enemy AI** — BFS pathfinding within 12-tile chase range, random wandering, simultaneous movement for all enemies per turn.
-- **Combat** — Attack the tile you're facing with Space. Enemies are defeated and removed from the map.
+- **Enemy AI** — BFS pathfinding within 12-tile chase range, 8-directional movement with diagonal corner validation, random wandering, simultaneous movement for all enemies per turn.
+- **Combat** — Generic turn-based attack system shared by player and enemies. Attacker plays attack animation, defender faces attacker and plays hurt animation. Player attacks with Space; enemies attack when adjacent (within range and no wall corner blocking).
 - **Multi-Floor Dungeons** — Configurable floor count. Step on stairs to advance. Smooth fade transitions between floors.
 - **Minimap** — Real-time fog of war with room auto-reveal on entry and limited hallway vision.
 - **Tile Overlay** — Wall edge highlighting, water corners, and floor shadows for visual polish.
@@ -35,7 +35,12 @@ pmd-godot/
 │   ├── config/         # GameSettings autoload
 │   └── ui/             # Start menu, minimap
 ├── scenes/             # .tscn scene files
-├── addons/             # Plugins (empty)
+├── sprites/
+│   ├── player/         # Player animation spritesheets
+│   ├── enemy/          # Enemy animation spritesheets
+│   └── tiles/          # Floor, wall, water, stairs tiles
+├── resources/          # SpriteFrames (.tres) animation resources
+├── addons/             # Plugins
 └── project.godot
 ```
 

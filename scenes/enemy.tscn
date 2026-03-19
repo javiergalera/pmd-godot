@@ -1,13 +1,10 @@
-[gd_scene load_steps=4 format=3]
+[gd_scene load_steps=3 format=3]
 
-[ext_resource type="Texture2D" path="res://player.png" id="1_player_tex"]
+[ext_resource type="SpriteFrames" path="res://resources/enemy_frames.tres" id="1_enemy_frames"]
 [ext_resource type="Script" path="res://scripts/enemy/enemy.gd" id="2_enemy_script"]
-[ext_resource type="Shader" path="res://scripts/enemy/enemy_tint.gdshader" id="3_enemy_shader"]
 
-[sub_resource type="ShaderMaterial" id="ShaderMaterial_enemy"]
-shader = ExtResource("3_enemy_shader")
-
-[node name="Enemy" type="Sprite2D"]
-texture = ExtResource("1_player_tex")
-material = SubResource("ShaderMaterial_enemy")
+[node name="Enemy" type="AnimatedSprite2D"]
+sprite_frames = ExtResource("1_enemy_frames")
+animation = &"idle_down"
+autoplay = "idle_down"
 script = ExtResource("2_enemy_script")
