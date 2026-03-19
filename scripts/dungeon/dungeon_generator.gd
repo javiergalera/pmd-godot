@@ -66,6 +66,7 @@ var _current_floor: int = 1
 var _current_seed: int = 0
 var _run_seed: int = 0
 var _has_custom_seed: bool = false
+var _transitioning: bool = false
 
 func _ready() -> void:
 	_apply_game_settings()
@@ -166,8 +167,8 @@ func generate_dungeon() -> void:
 	_algorithm = DungeonAlgorithm.new()
 	var tiles: Array = _algorithm.generate_dungeon(fp, dd, gc, adv)
 	_gen_info = _algorithm.get_generation_info()
-	var enemy_spawn_tiles := _collect_enemy_spawns(tiles)
 
+	var enemy_spawn_tiles := _collect_enemy_spawns(tiles)
 	_render_tiles(tiles)
 	_refresh_tile_overlay()
 	_spawn_player()
@@ -184,6 +185,7 @@ func generate_dungeon() -> void:
 	var seed_label = get_node_or_null("../CanvasLayer/SeedLabel")
 	if seed_label:
 		seed_label.text = "Seed: %d" % _current_seed
+
 
 func _render_tiles(tiles: Array) -> void:
 	for x in range(DungeonData.FLOOR_MAX_X):
@@ -273,28 +275,44 @@ func is_walkable_tile(coords: Vector2i) -> bool:
 	return tt == "room" or tt == "hallway" or tt == "stairs"
 
 func _on_player_stepped_on_stairs() -> void:
+	if _transitioning:
+		return
+	_transitioning = true
+
 	var player = get_node_or_null("../Player")
 	if player:
 		player.is_frozen = true
+		player.is_moving = false
+		if "_dash_active" in player:
+			player._dash_active = false
+			player._dash_dir = Vector2i.ZERO
 
 	var fade_rect = get_node_or_null("../CanvasLayer/FadeRect")
 	if not fade_rect:
+		_transitioning = false
 		return
 
-	# Fade to black
-	var tween := create_tween()
-	tween.tween_property(fade_rect, "color:a", 1.0, 0.5)
+	var tween_in := create_tween()
+	tween_in.tween_property(fade_rect, "color:a", 1.0, 0.5)
+	await tween_in.finished
+
 	if _is_last_floor():
-		tween.tween_interval(0.3)
-		tween.tween_callback(_finish_dungeon)
-	else:
-		tween.tween_callback(_advance_floor)
-		tween.tween_interval(0.3)
-		tween.tween_property(fade_rect, "color:a", 0.0, 0.5)
-		tween.tween_callback(func() -> void:
-			if player:
-				player.is_frozen = false
-		)
+		await get_tree().create_timer(0.3).timeout
+		_transitioning = false
+		_finish_dungeon()
+		return
+
+	_advance_floor()
+
+	await get_tree().create_timer(0.3).timeout
+
+	var tween_out := create_tween()
+	tween_out.tween_property(fade_rect, "color:a", 0.0, 0.5)
+	await tween_out.finished
+
+	if player and is_instance_valid(player):
+		player.is_frozen = false
+	_transitioning = false
 
 func _advance_floor() -> void:
 	_current_floor += 1
