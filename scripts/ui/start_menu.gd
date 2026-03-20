@@ -57,4 +57,4 @@ func _on_start_button_pressed() -> void:
 		error_label.text = "Seed must be an integer"
 		return
 
-	get_tree().change_scene_to_file("res://scenes/basic_tests.tscn")
+	get_tree().change_scene_to_file("res://scenes/dungeon/dungeon.tscn")

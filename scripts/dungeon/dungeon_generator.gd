@@ -53,13 +53,25 @@ extends TileMapLayer
 @export var fix_dead_end_validation_error: bool = true
 @export var fix_generate_outer_rooms_floor_error: bool = true
 
+# ─── Scene References (resolved at _ready) ───
+@onready var player_node: AnimatedSprite2D = get_node_or_null("../Player")
+@onready var enemy_manager: Node2D = get_node_or_null("../EnemyManager")
+@onready var vision_overlay: Node2D = get_node_or_null("../VisionOverlay")
+@onready var minimap_node: Control = get_node_or_null("../CanvasLayer/Minimap")
+@onready var floor_label: Label = get_node_or_null("../CanvasLayer/FloorLabel")
+@onready var seed_label: Label = get_node_or_null("../CanvasLayer/SeedLabel")
+@onready var turn_manager: Node = get_node_or_null("../TurnManager")
+@onready var floor_transition: Node = get_node_or_null("../FloorTransition")
+
 # TileSet source IDs
-const TILE_SOURCE_FLOOR := 0
-const TILE_SOURCE_WALL := 1
-const TILE_SOURCE_WATER := 2
-const TILE_SOURCE_STAIRS := 3
+const TILE_SOURCE_AUTOTILE := 0
+const TILE_SOURCE_STAIRS := 1
+const WALL_COL_OFFSET := 0
+const WATER_COL_OFFSET := 6
+const FLOOR_COL_OFFSET := 12
 
 var tile_type_map: Dictionary = {}
+var room_index_map: Dictionary = {}
 var _algorithm: DungeonAlgorithm
 var _gen_info: DungeonData.DungeonGenerationInfo
 var _current_floor: int = 1
@@ -67,10 +79,12 @@ var _current_seed: int = 0
 var _run_seed: int = 0
 var _floor_seeds: Array[int] = []
 var _has_custom_seed: bool = false
-var _transitioning: bool = false
+
+const _AutotileData := preload("res://scripts/dungeon/generation/autotile_data.gd")
 
 func _ready() -> void:
 	_apply_game_settings()
+	_setup_tileset()
 	_current_floor = dungeon_floor
 	if _has_custom_seed:
 		_run_seed = _current_seed
@@ -79,9 +93,11 @@ func _ready() -> void:
 	_generate_floor_seeds()
 	_prevalidate_all_floors()
 	generate_dungeon()
-	var player = get_node_or_null("../Player")
-	if player:
-		player.stepped_on_stairs.connect(_on_player_stepped_on_stairs)
+	if player_node:
+		player_node.stepped_on_stairs.connect(_on_player_stepped_on_stairs)
+	var audio = get_node_or_null("/root/AudioManager")
+	if audio:
+		audio.play_dungeon_music()
 
 func _generate_floor_seeds() -> void:
 	_floor_seeds.clear()
@@ -122,8 +138,10 @@ func generate_dungeon() -> void:
 	_current_seed = _floor_seeds[_current_floor - 1]
 	seed(_current_seed)
 	tile_type_map.clear()
+	room_index_map.clear()
 	clear()
-	TurnManager.reset()
+	if turn_manager:
+		turn_manager.reset()
 
 	var params := _build_generation_params(_current_seed)
 
@@ -133,19 +151,15 @@ func generate_dungeon() -> void:
 
 	var enemy_spawn_tiles := _collect_enemy_spawns(tiles)
 	_render_tiles(tiles)
-	_refresh_tile_overlay()
 	_spawn_player()
 	_spawn_enemies(enemy_spawn_tiles)
 
-	var minimap = get_node_or_null("../CanvasLayer/Minimap")
-	if minimap:
-		minimap.reset()
-
-	var floor_label = get_node_or_null("../CanvasLayer/FloorLabel")
+	if minimap_node:
+		minimap_node.reset()
+	if vision_overlay:
+		vision_overlay.refresh()
 	if floor_label:
 		floor_label.text = "%dF/%dF" % [_current_floor, _max_floor()]
-
-	var seed_label = get_node_or_null("../CanvasLayer/SeedLabel")
 	if seed_label:
 		seed_label.text = "Seed: %d" % _run_seed
 
@@ -229,43 +243,89 @@ func _prevalidate_all_floors() -> void:
 			push_warning("  Floor %d: Invalid player spawn (%d, %d)" % [f, info.player_spawn_x, info.player_spawn_y])
 
 
+func _setup_tileset() -> void:
+	# Clear existing TileSet sources and set up autotile atlas from tileset_0.png
+	while tile_set.get_source_count() > 0:
+		tile_set.remove_source(tile_set.get_source_id(0))
+
+	var tileset_tex := preload("res://sprites/dungeon/tileset_0.png")
+	var atlas := TileSetAtlasSource.new()
+	atlas.texture = tileset_tex
+	atlas.texture_region_size = Vector2i(24, 24)
+	for col in range(18):
+		for row in range(8):
+			atlas.create_tile(Vector2i(col, row))
+	tile_set.add_source(atlas, TILE_SOURCE_AUTOTILE)
+
+	var stairs_tex := preload("res://sprites/tiles/stairs.png")
+	var stairs_atlas := TileSetAtlasSource.new()
+	stairs_atlas.texture = stairs_tex
+	stairs_atlas.texture_region_size = Vector2i(24, 24)
+	stairs_atlas.create_tile(Vector2i(0, 0))
+	tile_set.add_source(stairs_atlas, TILE_SOURCE_STAIRS)
+
 func _render_tiles(tiles: Array) -> void:
+	# First pass: classify all tiles
 	for x in range(DungeonData.FLOOR_MAX_X):
 		for y in range(DungeonData.FLOOR_MAX_Y):
 			var coords := Vector2i(x, y)
 			var tile: DungeonData.Tile = tiles[x][y]
-
 			match tile.terrain_flags.terrain_type:
 				DungeonData.TerrainType.TERRAIN_NORMAL:
 					if tile.spawn_or_visibility_flags.f_stairs:
-						set_cell(coords, TILE_SOURCE_STAIRS, Vector2i(0, 0))
 						tile_type_map[coords] = "stairs"
 					else:
-						set_cell(coords, TILE_SOURCE_FLOOR, Vector2i(0, 0))
-						if tile.room_index < 0xF0:
-							tile_type_map[coords] = "room"
-						else:
-							tile_type_map[coords] = "hallway"
+						tile_type_map[coords] = "room" if tile.room_index < 0xF0 else "hallway"
+					room_index_map[coords] = tile.room_index
 				DungeonData.TerrainType.TERRAIN_SECONDARY:
-					set_cell(coords, TILE_SOURCE_WATER, Vector2i(0, 0))
 					tile_type_map[coords] = "water"
-				DungeonData.TerrainType.TERRAIN_CHASM:
-					set_cell(coords, TILE_SOURCE_WALL, Vector2i(0, 0))
-					tile_type_map[coords] = "wall"
-				DungeonData.TerrainType.TERRAIN_WALL:
-					set_cell(coords, TILE_SOURCE_WALL, Vector2i(0, 0))
+				DungeonData.TerrainType.TERRAIN_CHASM, DungeonData.TerrainType.TERRAIN_WALL:
 					tile_type_map[coords] = "wall"
 
+	# Second pass: render with autotile lookup
+	for x in range(DungeonData.FLOOR_MAX_X):
+		for y in range(DungeonData.FLOOR_MAX_Y):
+			var coords := Vector2i(x, y)
+			var tt: String = tile_type_map.get(coords, "wall")
+			match tt:
+				"room", "hallway":
+					var ac := _autotile_lookup(x, y, "floor")
+					set_cell(coords, TILE_SOURCE_AUTOTILE, ac + Vector2i(FLOOR_COL_OFFSET, 0))
+				"stairs":
+					set_cell(coords, TILE_SOURCE_STAIRS, Vector2i(0, 0))
+				"water":
+					var ac := _autotile_lookup(x, y, "water")
+					set_cell(coords, TILE_SOURCE_AUTOTILE, ac + Vector2i(WATER_COL_OFFSET, 0))
+				"wall":
+					var ac := _autotile_lookup(x, y, "wall")
+					set_cell(coords, TILE_SOURCE_AUTOTILE, ac + Vector2i(WALL_COL_OFFSET, 0))
+
+func _autotile_lookup(x: int, y: int, group: String) -> Vector2i:
+	var id := ""
+	for j in range(y - 1, y + 2):
+		for i in range(x - 1, x + 2):
+			var cx := clampi(i, 0, DungeonData.FLOOR_MAX_X - 1)
+			var cy := clampi(j, 0, DungeonData.FLOOR_MAX_Y - 1)
+			var tt: String = tile_type_map.get(Vector2i(cx, cy), "wall")
+			var matches: bool
+			match group:
+				"floor":
+					matches = (tt == "room" or tt == "hallway" or tt == "stairs")
+				"water":
+					matches = (tt == "water")
+				_:
+					matches = (tt == "wall")
+			id += "1" if matches else "0"
+	return _AutotileData.MAP.get(id, _AutotileData.DEFAULT)
+
 func _spawn_player() -> void:
-	var player = get_node_or_null("../Player")
-	if player == null:
+	if player_node == null:
 		return
 
 	var px: int = _gen_info.player_spawn_x
 	var py: int = _gen_info.player_spawn_y
 
 	if px < 0 or py < 0:
-		# Fallback: find any walkable tile
 		for x in range(DungeonData.FLOOR_MAX_X):
 			for y in range(DungeonData.FLOOR_MAX_Y):
 				if is_walkable_tile(Vector2i(x, y)):
@@ -274,20 +334,18 @@ func _spawn_player() -> void:
 			if px >= 0:
 				break
 
-	player.position = Vector2(px, py) * tile_size + Vector2(tile_size / 2.0, tile_size / 2.0)
+	player_node.position = Vector2(px, py) * tile_size + Vector2(tile_size / 2.0, tile_size / 2.0)
+	if "tile_position" in player_node:
+		player_node.tile_position = Vector2i(px, py)
+	if player_node.has_method("_update_z_order"):
+		player_node._update_z_order()
 
-	var camera = player.get_node_or_null("Camera2D")
+	var camera = player_node.get_node_or_null("Camera2D")
 	if camera:
 		camera.limit_left = 0
 		camera.limit_top = 0
 		camera.limit_right = DungeonData.FLOOR_MAX_X * tile_size
 		camera.limit_bottom = DungeonData.FLOOR_MAX_Y * tile_size
-
-func _refresh_tile_overlay() -> void:
-	var overlay = get_node_or_null("../TileOverlay")
-	if overlay and overlay.has_method("refresh"):
-		overlay.tile_size = tile_size
-		overlay.refresh()
 
 func _collect_enemy_spawns(tiles: Array) -> Array[Vector2i]:
 	var spawns: Array[Vector2i] = []
@@ -298,63 +356,32 @@ func _collect_enemy_spawns(tiles: Array) -> Array[Vector2i]:
 	return spawns
 
 func _spawn_enemies(spawn_tiles: Array[Vector2i]) -> void:
-	var enemy_manager = get_node_or_null("../EnemyManager")
-	var player = get_node_or_null("../Player")
-	if enemy_manager == null or player == null or not enemy_manager.has_method("reset_enemies"):
+	if enemy_manager == null or player_node == null:
 		return
-
-	var player_tile := Vector2i(
-		roundi((player.position.x - tile_size / 2.0) / tile_size),
-		roundi((player.position.y - tile_size / 2.0) / tile_size)
-	)
+	var player_tile: Vector2i = player_node.tile_position
 	enemy_manager.reset_enemies(spawn_tiles, tile_size, _current_seed, player_tile)
 
 func get_tile_type(coords: Vector2i) -> String:
 	return tile_type_map.get(coords, "wall")
+
+func get_room_index(coords: Vector2i) -> int:
+	return room_index_map.get(coords, 0xFF)
 
 func is_walkable_tile(coords: Vector2i) -> bool:
 	var tt: String = tile_type_map.get(coords, "wall")
 	return tt == "room" or tt == "hallway" or tt == "stairs"
 
 func _on_player_stepped_on_stairs() -> void:
-	if _transitioning:
+	if not floor_transition or floor_transition.is_transitioning:
 		return
-	_transitioning = true
-
-	var player = get_node_or_null("../Player")
-	if player:
-		player.is_frozen = true
-		player.is_moving = false
-		if "_dash_active" in player:
-			player._dash_active = false
-			player._dash_dir = Vector2i.ZERO
-
-	var fade_rect = get_node_or_null("../CanvasLayer/FadeRect")
-	if not fade_rect:
-		_transitioning = false
-		return
-
-	var tween_in := create_tween()
-	tween_in.tween_property(fade_rect, "color:a", 1.0, 0.5)
-	await tween_in.finished
-
+	floor_transition.start()
+	await floor_transition.mid_transition
 	if _is_last_floor():
 		await get_tree().create_timer(0.3).timeout
-		_transitioning = false
 		_finish_dungeon()
 		return
-
 	_advance_floor()
-
-	await get_tree().create_timer(0.3).timeout
-
-	var tween_out := create_tween()
-	tween_out.tween_property(fade_rect, "color:a", 0.0, 0.5)
-	await tween_out.finished
-
-	if player and is_instance_valid(player):
-		player.is_frozen = false
-	_transitioning = false
+	floor_transition.finish()
 
 func _advance_floor() -> void:
 	_current_floor += 1
@@ -369,4 +396,7 @@ func _is_last_floor() -> bool:
 	return _current_floor >= _max_floor()
 
 func _finish_dungeon() -> void:
+	var audio = get_node_or_null("/root/AudioManager")
+	if audio:
+		audio.stop_music(0.0)
 	get_tree().change_scene_to_file(menu_scene_path)

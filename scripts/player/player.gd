@@ -1,68 +1,21 @@
-extends AnimatedSprite2D
+extends "res://scripts/dungeon/entities/tile_entity.gd"
 ## PMD-style 8-directional tile movement with walk, dash, and turn system.
 ##
-## Walk:  Hold direction → move tile by tile. Release → stop.
-## Dash:  Hold Shift + direction → auto-run in that direction.
+## Walk:  Hold direction -> move tile by tile. Release -> stop.
+## Dash:  Hold Shift + direction -> auto-run in that direction.
 ##        Continues even after releasing direction keys.
-##        Stops on: wall/enemy, room↔hallway transition, hallway intersection.
-##        Opposite direction → immediate stop. Other direction → redirect.
+##        Stops on: wall/enemy, room<->hallway transition, hallway intersection.
+##        Opposite direction -> immediate stop. Other direction -> redirect.
 ##        After any stop: must release Shift and re-press Shift+dir to dash again.
 ##        Normal walking (without Shift) is always available.
-## Ctrl:  Hold Ctrl + direction → rotate facing without moving (no turn).
+## Ctrl:  Hold Ctrl + direction -> rotate facing without moving (no turn).
 ## Space: Attack the tile you're facing (consumes a turn).
 
-const _ANIM_NAMES: Dictionary = {
-	Vector2i(0, 1): &"walk_down",
-	Vector2i(1, 1): &"walk_down_right",
-	Vector2i(1, 0): &"walk_right",
-	Vector2i(1, -1): &"walk_up_right",
-	Vector2i(0, -1): &"walk_up",
-	Vector2i(-1, -1): &"walk_up_left",
-	Vector2i(-1, 0): &"walk_left",
-	Vector2i(-1, 1): &"walk_down_left",
-}
-
-const _IDLE_NAMES: Dictionary = {
-	Vector2i(0, 1): &"idle_down",
-	Vector2i(1, 1): &"idle_down_right",
-	Vector2i(1, 0): &"idle_right",
-	Vector2i(1, -1): &"idle_up_right",
-	Vector2i(0, -1): &"idle_up",
-	Vector2i(-1, -1): &"idle_up_left",
-	Vector2i(-1, 0): &"idle_left",
-	Vector2i(-1, 1): &"idle_down_left",
-}
-
-const _ATTACK_NAMES: Dictionary = {
-	Vector2i(0, 1): &"attack_down",
-	Vector2i(1, 1): &"attack_down_right",
-	Vector2i(1, 0): &"attack_right",
-	Vector2i(1, -1): &"attack_up_right",
-	Vector2i(0, -1): &"attack_up",
-	Vector2i(-1, -1): &"attack_up_left",
-	Vector2i(-1, 0): &"attack_left",
-	Vector2i(-1, 1): &"attack_down_left",
-}
-
-const _HURT_NAMES: Dictionary = {
-	Vector2i(0, 1): &"hurt_down",
-	Vector2i(1, 1): &"hurt_down_right",
-	Vector2i(1, 0): &"hurt_right",
-	Vector2i(1, -1): &"hurt_up_right",
-	Vector2i(0, -1): &"hurt_up",
-	Vector2i(-1, -1): &"hurt_up_left",
-	Vector2i(-1, 0): &"hurt_left",
-	Vector2i(-1, 1): &"hurt_down_left",
-}
-
-@export var tile_size: int = 24
 @export var walk_time: float = 0.12
 @export var dash_time: float = 0.05
 
-# ── Core state ──
 var is_moving: bool = false
 var is_frozen: bool = false
-var facing: Vector2i = Vector2i.DOWN
 
 # ── Dash state ──
 var _dash_active: bool = false           # currently auto-running
@@ -72,13 +25,16 @@ var _pending_continuation: Callable = Callable()
 
 signal stepped_on_stairs
 
-@onready var dungeon_map: TileMapLayer = get_node("../TileMapLayer")
+@onready var dungeon_map: TileMapLayer = get_node_or_null("../TileMapLayer")
 @onready var enemy_manager: Node = get_node_or_null("../EnemyManager")
+@onready var turn_manager: Node = get_node_or_null("../TurnManager")
 
 func _ready() -> void:
 	_update_facing_arrow()
-	play(_IDLE_NAMES.get(facing, &"idle_down"))
-	TurnManager.enemy_phase_finished.connect(_on_enemy_phase_finished)
+	_update_z_order()
+	play_idle()
+	if turn_manager:
+		turn_manager.enemy_phase_finished.connect(_on_enemy_phase_finished)
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 #  INPUT LOOP — runs every frame, decides what to do when idle
@@ -106,7 +62,7 @@ func _process(_delta: float) -> void:
 			_dash_active = true
 			_dash_dir = dir
 			_set_facing(dir)
-			if _can_move_to(_current_tile(), dir):
+			if _can_move_to(tile_position, dir):
 				_do_move(dir, dash_time)
 			else:
 				_stop_dash()
@@ -117,7 +73,7 @@ func _process(_delta: float) -> void:
 	# ── Normal walk (no Shift, or Shift blocked by repress) ──
 	if dir != Vector2i.ZERO and not _dash_active:
 		_set_facing(dir)
-		if _can_move_to(_current_tile(), dir):
+		if _can_move_to(tile_position, dir):
 			_do_move(dir, walk_time)
 		else:
 			_stop_anim()
@@ -137,21 +93,19 @@ func _unhandled_input(event: InputEvent) -> void:
 func _do_move(dir: Vector2i, duration: float) -> void:
 	is_moving = true
 	speed_scale = 2.0 if duration == dash_time else 1.0
-	var anim_name: StringName = _ANIM_NAMES.get(facing, &"walk_down")
-	if animation != anim_name:
-		play(anim_name)
-	elif not is_playing():
-		play(anim_name)
-	var target := _current_tile() + dir
+	play_walk()
+	var target := tile_position + dir
+	tile_position = target
+	_update_z_order()
 	var tween := create_tween()
-	tween.tween_property(self, "position", _tile_center(target), duration)
+	tween.tween_property(self, "position", tile_center(target), duration)
 	tween.finished.connect(_on_move_finished)
 
 func _on_move_finished() -> void:
 	is_moving = false
 
 	# ── Stairs ──
-	if dungeon_map.get_tile_type(_current_tile()) == "stairs":
+	if dungeon_map and dungeon_map.get_tile_type(tile_position) == "stairs":
 		_stop_dash()
 		_stop_anim()
 		stepped_on_stairs.emit()
@@ -166,7 +120,10 @@ func _on_move_finished() -> void:
 	# ── Freeze until enemy phase completes ──
 	is_frozen = true
 	var speed := dash_time if _dash_active else walk_time
-	TurnManager.end_player_turn(speed)
+	if turn_manager:
+		turn_manager.end_player_turn(speed)
+	else:
+		is_frozen = false
 
 func _continue_dash() -> void:
 	# Shift released → end dash
@@ -206,14 +163,14 @@ func _continue_walk() -> void:
 		_dash_active = true
 		_dash_dir = dir
 		_set_facing(dir)
-		if _can_move_to(_current_tile(), dir):
+		if _can_move_to(tile_position, dir):
 			_do_move(dir, dash_time)
 		else:
 			_stop_dash()
 		return
 
 	# Normal walk chain
-	if dir != Vector2i.ZERO and _can_move_to(_current_tile(), dir):
+	if dir != Vector2i.ZERO and _can_move_to(tile_position, dir):
 		_set_facing(dir)
 		_do_move(dir, walk_time)
 
@@ -223,7 +180,7 @@ func _stop_dash() -> void:
 
 func _stop_anim() -> void:
 	speed_scale = 1.0
-	play(_IDLE_NAMES.get(facing, &"idle_down"))
+	play_idle()
 func _on_enemy_phase_finished() -> void:
 	is_frozen = false
 	var continuation := _pending_continuation
@@ -238,28 +195,29 @@ func _on_enemy_phase_finished() -> void:
 
 func _do_attack() -> void:
 	is_frozen = true
-	var attack_tile := _current_tile() + facing
+	var attack_tile := tile_position + facing
 	var killed := false
 	if enemy_manager and enemy_manager.has_method("kill_enemy_at"):
-		killed = await enemy_manager.kill_enemy_at(attack_tile, self, _current_tile())
+		killed = await enemy_manager.kill_enemy_at(attack_tile, self, tile_position)
 	if not killed:
+		var audio = get_node_or_null("/root/AudioManager")
+		if audio:
+			audio.play_player_attack()
 		play_attack()
 		await animation_finished
 	_stop_anim()
 	_pending_continuation = Callable()
-	TurnManager.end_player_turn(walk_time)
-
-func play_attack() -> void:
-	play(_ATTACK_NAMES.get(facing, &"attack_down"))
-
-func play_hurt() -> void:
-	play(_HURT_NAMES.get(facing, &"hurt_down"))
+	if turn_manager:
+		turn_manager.end_player_turn(walk_time)
+	else:
+		is_frozen = false
 
 func face_toward(target_tile: Vector2i) -> void:
-	var dir := (target_tile - _current_tile()).sign()
+	var dir := (target_tile - tile_position).sign()
 	if dir != Vector2i.ZERO:
 		facing = dir
 		_update_facing_arrow()
+		_update_z_order()
 	_stop_anim()
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -269,6 +227,7 @@ func face_toward(target_tile: Vector2i) -> void:
 func _set_facing(dir: Vector2i) -> void:
 	facing = dir
 	_update_facing_arrow()
+	_update_z_order()
 
 func _update_facing_arrow() -> void:
 	var arrow := get_node_or_null("FacingArrow")
@@ -280,12 +239,14 @@ func _update_facing_arrow() -> void:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 func _is_dash_stop_point(direction: Vector2i) -> bool:
-	var tile := _current_tile()
+	var tile := tile_position
 	var next := tile + direction
 
-	# Wall or enemy ahead
 	if not _can_move_to(tile, direction):
 		return true
+
+	if not dungeon_map:
+		return false
 
 	var cur_type: String = dungeon_map.get_tile_type(tile)
 	var next_type: String = dungeon_map.get_tile_type(next)
@@ -332,29 +293,28 @@ func _perpendiculars(dir: Vector2i) -> Array[Vector2i]:
 #  TILE HELPERS
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-func _current_tile() -> Vector2i:
+func _sync_tile_position() -> void:
 	var half := Vector2(tile_size / 2.0, tile_size / 2.0)
-	return Vector2i(roundi((position.x - half.x) / tile_size), roundi((position.y - half.y) / tile_size))
+	tile_position = Vector2i(roundi((position.x - half.x) / tile_size), roundi((position.y - half.y) / tile_size))
 
-func _tile_center(tile: Vector2i) -> Vector2:
-	return Vector2(tile) * tile_size + Vector2(tile_size / 2.0, tile_size / 2.0)
-
-func _can_move_to(origin: Vector2i, dir: Vector2i) -> bool:
-	var target := origin + dir
+func _can_move_to(_origin: Vector2i, dir: Vector2i) -> bool:
+	var target := tile_position + dir
 	if not _is_walkable(target):
 		return false
 	if enemy_manager != null and enemy_manager.has_method("is_tile_occupied_by_enemy") and enemy_manager.is_tile_occupied_by_enemy(target):
 		return false
 	if dir.x != 0 and dir.y != 0:
-		if not _is_walkable(origin + Vector2i(dir.x, 0)):
+		if not _is_walkable(tile_position + Vector2i(dir.x, 0)):
 			return false
-		if enemy_manager != null and enemy_manager.has_method("is_tile_occupied_by_enemy") and enemy_manager.is_tile_occupied_by_enemy(origin + Vector2i(dir.x, 0)):
+		if enemy_manager != null and enemy_manager.has_method("is_tile_occupied_by_enemy") and enemy_manager.is_tile_occupied_by_enemy(tile_position + Vector2i(dir.x, 0)):
 			return false
-		if not _is_walkable(origin + Vector2i(0, dir.y)):
+		if not _is_walkable(tile_position + Vector2i(0, dir.y)):
 			return false
-		if enemy_manager != null and enemy_manager.has_method("is_tile_occupied_by_enemy") and enemy_manager.is_tile_occupied_by_enemy(origin + Vector2i(0, dir.y)):
+		if enemy_manager != null and enemy_manager.has_method("is_tile_occupied_by_enemy") and enemy_manager.is_tile_occupied_by_enemy(tile_position + Vector2i(0, dir.y)):
 			return false
 	return true
 
 func _is_walkable(coords: Vector2i) -> bool:
+	if not dungeon_map:
+		return true
 	return dungeon_map.is_walkable_tile(coords)
