@@ -18,7 +18,7 @@ config/icon="res://icon.svg"
 [autoload]
 
 GameSettings="*res://scripts/core/game_settings.gd"
-TurnManager="*res://scripts/dungeon/turn_manager.gd"
+TurnManager="*res://scripts/core/turn_manager.gd"
 AudioManager="*res://scripts/core/audio_manager.gd"
 
 [display]

@@ -190,6 +190,18 @@ unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
 
+[node name="ModeRow" type="HBoxContainer" parent="Panel/MarginContainer/VBox/ScrollContainer/Fields"]
+layout_mode = 2
+
+[node name="ModeLabel" type="Label" parent="Panel/MarginContainer/VBox/ScrollContainer/Fields/ModeRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "3D mode"
+
+[node name="ModeCheck" type="CheckButton" parent="Panel/MarginContainer/VBox/ScrollContainer/Fields/ModeRow"]
+unique_name_in_owner = true
+layout_mode = 2
+
 [node name="ErrorLabel" type="Label" parent="Panel/MarginContainer/VBox/ScrollContainer/Fields"]
 unique_name_in_owner = true
 layout_mode = 2

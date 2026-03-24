@@ -9,6 +9,7 @@ extends Control
 @onready var trap_density_spin: SpinBox = %TrapDensitySpin
 @onready var room_obstacle_spin: SpinBox = %RoomObstacleSpin
 @onready var seed_input: LineEdit = %SeedInput
+@onready var mode_check: CheckButton = %ModeCheck
 @onready var error_label: Label = %ErrorLabel
 
 func _ready() -> void:
@@ -22,6 +23,7 @@ func _ready() -> void:
 		item_density_spin.value = settings.item_density
 		trap_density_spin.value = settings.trap_density
 		room_obstacle_spin.value = settings.room_obstacle_density
+		mode_check.button_pressed = settings.use_3d
 		if settings.has_custom_seed:
 			seed_input.text = str(settings.seed_value)
 		else:
@@ -45,6 +47,7 @@ func _on_start_button_pressed() -> void:
 	settings.item_density = int(item_density_spin.value)
 	settings.trap_density = int(trap_density_spin.value)
 	settings.room_obstacle_density = int(room_obstacle_spin.value)
+	settings.use_3d = mode_check.button_pressed
 
 	var seed_text := seed_input.text.strip_edges()
 	if seed_text.is_empty():
@@ -57,4 +60,5 @@ func _on_start_button_pressed() -> void:
 		error_label.text = "Seed must be an integer"
 		return
 
-	get_tree().change_scene_to_file("res://scenes/dungeon/dungeon.tscn")
+	var scene_path := "res://scenes/dungeon_3d/dungeon_3d.tscn" if settings.use_3d else "res://scenes/dungeon_2d/dungeon_2d.tscn"
+	get_tree().change_scene_to_file(scene_path)

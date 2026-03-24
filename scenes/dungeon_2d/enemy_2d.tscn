@@ -1,0 +1,10 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="SpriteFrames" path="res://resources/enemy_frames.tres" id="1_enemy_frames"]
+[ext_resource type="Script" path="res://scripts/dungeon/entities/enemy.gd" id="2_enemy_script"]
+
+[node name="Enemy" type="AnimatedSprite2D"]
+sprite_frames = ExtResource("1_enemy_frames")
+animation = &"idle_down"
+autoplay = "idle_down"
+script = ExtResource("2_enemy_script")

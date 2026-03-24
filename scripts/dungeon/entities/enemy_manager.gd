@@ -1,12 +1,6 @@
 extends Node2D
-
-const CARDINAL_DIRECTIONS := [Vector2i.UP, Vector2i.DOWN, Vector2i.LEFT, Vector2i.RIGHT]
-const ALL_DIRECTIONS := [
-	Vector2i.UP, Vector2i.DOWN, Vector2i.LEFT, Vector2i.RIGHT,
-	Vector2i(1, 1), Vector2i(1, -1), Vector2i(-1, 1), Vector2i(-1, -1),
-]
-const WANDER_CHANCE := 35
-const CHASE_DISTANCE := 12
+## 2D enemy manager — spawning, turn coordination, combat.
+## AI logic (pathfinding, destination choosing) is delegated to EnemyAI.
 
 @export var enemy_scene: PackedScene
 
@@ -14,10 +8,12 @@ const CHASE_DISTANCE := 12
 @onready var player: Node2D = get_node_or_null("../Player")
 @onready var turn_manager: Node = get_node_or_null("../TurnManager")
 
-var _rng := RandomNumberGenerator.new()
+var _ai := EnemyAI.new()
+## tile → enemy node cache for O(1) position lookups.
+var _position_cache: Dictionary = {}
 
 func _ready() -> void:
-	_rng.randomize()
+	_ai.randomize_rng()
 	if turn_manager:
 		turn_manager.enemy_phase_started.connect(_on_enemy_phase)
 
@@ -27,10 +23,10 @@ func _exit_tree() -> void:
 
 func reset_enemies(spawn_tiles: Array[Vector2i], tile_size: int, seed_value: int, player_tile: Vector2i) -> void:
 	for child in get_children():
-		remove_child(child)
-		child.free()
+		child.queue_free()
+	_position_cache.clear()
 
-	_rng.seed = seed_value
+	_ai.set_seed(seed_value)
 	for spawn_tile in spawn_tiles:
 		if spawn_tile == player_tile:
 			continue
@@ -39,12 +35,11 @@ func reset_enemies(spawn_tiles: Array[Vector2i], tile_size: int, seed_value: int
 		var enemy = enemy_scene.instantiate()
 		add_child(enemy)
 		enemy.configure(spawn_tile, tile_size, self)
+		_position_cache[spawn_tile] = enemy
 
 func _on_enemy_phase(action_speed: float) -> void:
 	run_enemy_turns(action_speed)
 
-# All enemies move simultaneously at the same speed as the player's action.
-# tile_position is updated before any tween starts so occupancy is consistent.
 func run_enemy_turns(move_duration: float = 0.07) -> void:
 	if player == null or dungeon_map == null:
 		if turn_manager:
@@ -54,21 +49,24 @@ func run_enemy_turns(move_duration: float = 0.07) -> void:
 	var player_tile: Vector2i = player.tile_position
 	var attackers: Array[Node] = []
 	for child in get_children():
-		if not is_instance_valid(child):
-			continue
-		if child.is_queued_for_deletion():
+		if not is_instance_valid(child) or child.is_queued_for_deletion():
 			continue
 		if not child.has_method("move_to_tile"):
 			continue
 		if not ("tile_position" in child):
 			continue
-		var next_tile := choose_enemy_destination(child, player_tile)
-		if next_tile == child.tile_position:
+		var old_tile: Vector2i = child.tile_position
+		var next_tile := _ai.choose_destination(
+			old_tile, player_tile, dungeon_map, _get_occupied_tiles, child
+		)
+		if next_tile == old_tile:
 			child.face_toward(player_tile)
 			child.stop_walking()
-			if _is_adjacent_to_player(child.tile_position, player_tile):
+			if _ai.is_adjacent_to_player(old_tile, player_tile, dungeon_map):
 				attackers.append(child)
 		else:
+			_position_cache.erase(old_tile)
+			_position_cache[next_tile] = child
 			child.move_to_tile(next_tile, move_duration)
 
 	if attackers.size() > 0:
@@ -84,142 +82,33 @@ func run_enemy_turns(move_duration: float = 0.07) -> void:
 		turn_manager.finish_enemy_phase()
 
 func is_tile_occupied_by_enemy(tile: Vector2i) -> bool:
-	for child in get_children():
-		if not is_instance_valid(child):
-			continue
-		if child.is_queued_for_deletion():
-			continue
-		if not ("tile_position" in child):
-			continue
-		if child.tile_position == tile:
-			return true
-	return false
+	var enemy = _position_cache.get(tile)
+	return enemy != null and is_instance_valid(enemy) and not enemy.is_queued_for_deletion()
 
 func kill_enemy_at(tile: Vector2i, attacker: AnimatedSprite2D, attacker_tile: Vector2i) -> bool:
 	var target := get_enemy_at(tile)
 	if target == null:
 		return false
 	await CombatResolver.resolve_attack(attacker, attacker_tile, target, target.tile_position)
+	_position_cache.erase(tile)
 	target.queue_free()
 	return true
 
 func get_enemy_at(tile: Vector2i) -> Node:
-	for child in get_children():
-		if not is_instance_valid(child):
-			continue
-		if child.is_queued_for_deletion():
-			continue
-		if not ("tile_position" in child):
-			continue
-		if child.tile_position == tile:
-			return child
+	var enemy = _position_cache.get(tile)
+	if enemy != null and is_instance_valid(enemy) and not enemy.is_queued_for_deletion():
+		return enemy
+	_position_cache.erase(tile)
 	return null
 
-func choose_enemy_destination(enemy: Node2D, player_tile: Vector2i) -> Vector2i:
-	var start_tile: Vector2i = enemy.tile_position
-	if start_tile == player_tile:
-		return start_tile
-
-	# Check if adjacent to player (including diagonals if clear)
-	var diff := player_tile - start_tile
-	if absi(diff.x) <= 1 and absi(diff.y) <= 1 and diff != Vector2i.ZERO:
-		if diff.x == 0 or diff.y == 0:
-			# Cardinal — always in attack range
-			return start_tile
-		# Diagonal — only if both corner tiles are walkable
-		if dungeon_map.is_walkable_tile(start_tile + Vector2i(diff.x, 0)) and dungeon_map.is_walkable_tile(start_tile + Vector2i(0, diff.y)):
-			return start_tile
-		# Diagonal blocked — keep moving to find a cardinal spot
-
-	var path := _find_path(start_tile, player_tile, enemy)
-	if path.size() >= 2 and path.size() - 1 <= CHASE_DISTANCE:
-		# Stop one tile before the player (last walkable tile)
-		var next_step: Vector2i = path[1]
-		if next_step == player_tile:
-			return start_tile
-		return next_step
-
-	if _rng.randi_range(0, 99) >= WANDER_CHANCE:
-		return start_tile
-
-	var valid_moves: Array[Vector2i] = []
-	for direction in ALL_DIRECTIONS:
-		var candidate: Vector2i = start_tile + direction
-		if _can_enemy_step_from(start_tile, candidate, enemy):
-			valid_moves.append(candidate)
-	if valid_moves.is_empty():
-		return start_tile
-	return valid_moves[_rng.randi_range(0, valid_moves.size() - 1)]
-
-func _find_path(start_tile: Vector2i, goal_tile: Vector2i, moving_enemy: Node2D) -> Array[Vector2i]:
-	var frontier: Array[Vector2i] = [start_tile]
-	var came_from: Dictionary = {start_tile: start_tile}
-	var found := false
-
-	while frontier.size() > 0:
-		var current: Vector2i = frontier.pop_front()
-		if current == goal_tile:
-			found = true
-			break
-		for direction in ALL_DIRECTIONS:
-			var next: Vector2i = current + direction
-			if came_from.has(next):
-				continue
-			if next == goal_tile:
-				# Check diagonal corner for the last step too
-				if direction.x != 0 and direction.y != 0:
-					if not dungeon_map.is_walkable_tile(current + Vector2i(direction.x, 0)):
-						continue
-					if not dungeon_map.is_walkable_tile(current + Vector2i(0, direction.y)):
-						continue
-				came_from[next] = current
-				frontier.append(next)
-				continue
-			if not _can_enemy_step_from(current, next, moving_enemy):
-				continue
-			came_from[next] = current
-			frontier.append(next)
-
-	if not found:
-		return [start_tile]
-
-	var path: Array[Vector2i] = [goal_tile]
-	var cursor := goal_tile
-	while cursor != start_tile:
-		cursor = came_from[cursor]
-		path.push_front(cursor)
-	return path
-
-func _can_enemy_step_from(origin: Vector2i, tile: Vector2i, moving_enemy: Node2D) -> bool:
-	if dungeon_map == null or not dungeon_map.is_walkable_tile(tile):
-		return false
-	if player != null and tile == player.tile_position:
-		return false
-	# Diagonal corner check
-	var diff := tile - origin
-	if diff.x != 0 and diff.y != 0:
-		if not dungeon_map.is_walkable_tile(origin + Vector2i(diff.x, 0)):
-			return false
-		if not dungeon_map.is_walkable_tile(origin + Vector2i(0, diff.y)):
-			return false
-	for child in get_children():
-		if not is_instance_valid(child):
+## Returns a Dictionary of tiles occupied by other enemies (excluding the given one).
+func _get_occupied_tiles(exclude: Node) -> Dictionary:
+	var result: Dictionary = {}
+	for tile in _position_cache:
+		var enemy = _position_cache[tile]
+		if not is_instance_valid(enemy) or enemy.is_queued_for_deletion():
 			continue
-		if child.is_queued_for_deletion():
+		if enemy == exclude:
 			continue
-		if not ("tile_position" in child):
-			continue
-		if child == moving_enemy:
-			continue
-		if child.tile_position == tile:
-			return false
-	return true
-
-func _is_adjacent_to_player(enemy_tile: Vector2i, player_tile: Vector2i) -> bool:
-	var diff := player_tile - enemy_tile
-	if absi(diff.x) > 1 or absi(diff.y) > 1 or diff == Vector2i.ZERO:
-		return false
-	if diff.x == 0 or diff.y == 0:
-		return true
-	# Diagonal — only adjacent if both corner tiles are walkable
-	return dungeon_map.is_walkable_tile(enemy_tile + Vector2i(diff.x, 0)) and dungeon_map.is_walkable_tile(enemy_tile + Vector2i(0, diff.y))
+		result[tile] = true
+	return result

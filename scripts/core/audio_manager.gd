@@ -8,15 +8,27 @@ extends Node
 const SFX_POOL_SIZE := 8
 
 # ── Audio stream paths ──
-const _MUSIC_DUNGEON_PATH := "res://audio/music/background_music.mp3"
-const _SFX_PLAYER_ATTACK_PATH := "res://audio/sfx/player_attack.mp3"
-const _SFX_ENEMY_ATTACK_PATH := "res://audio/sfx/enemy_attack.mp3"
-const _SFX_STAIRS_PATH := "res://audio/sfx/stairs.mp3"
+const _MUSIC_DUNGEON_PATH := "res://audio/music/2d/background_music.mp3"
+const _SFX_PLAYER_ATTACK_PATH := "res://audio/sfx/2d/player_attack.mp3"
+const _SFX_ENEMY_ATTACK_PATH := "res://audio/sfx/2d/enemy_attack.mp3"
+const _SFX_STAIRS_PATH := "res://audio/sfx/2d/stairs.mp3"
+
+# ── 3D audio stream paths ──
+const _MUSIC_DUNGEON_3D_PATH := "res://audio/music/3d/background_music.mp3"
+const _SFX_PLAYER_ATTACK_3D_PATH := "res://audio/sfx/3d/player_attack.wav"
+const _SFX_ENEMY_ATTACK_3D_PATH := "res://audio/sfx/3d/enemy_attack.wav"
+const _SFX_STAIRS_3D_PATH := "res://audio/sfx/3d/stairs.wav"
 
 var _music_dungeon: AudioStream
 var _sfx_player_attack: AudioStream
 var _sfx_enemy_attack: AudioStream
 var _sfx_stairs: AudioStream
+
+# ── 3D streams ──
+var _music_dungeon_3d: AudioStream
+var _sfx_player_attack_3d: AudioStream
+var _sfx_enemy_attack_3d: AudioStream
+var _sfx_stairs_3d: AudioStream
 
 # ── Nodes ──
 var _music_player: AudioStreamPlayer
@@ -52,10 +64,24 @@ func _ready() -> void:
 	_ensure_audio_buses()
 
 func _load_audio_streams() -> void:
-	_music_dungeon = load(_MUSIC_DUNGEON_PATH)
-	_sfx_player_attack = load(_SFX_PLAYER_ATTACK_PATH)
-	_sfx_enemy_attack = load(_SFX_ENEMY_ATTACK_PATH)
-	_sfx_stairs = load(_SFX_STAIRS_PATH)
+	_music_dungeon = _safe_load(_MUSIC_DUNGEON_PATH)
+	_sfx_player_attack = _safe_load(_SFX_PLAYER_ATTACK_PATH)
+	_sfx_enemy_attack = _safe_load(_SFX_ENEMY_ATTACK_PATH)
+	_sfx_stairs = _safe_load(_SFX_STAIRS_PATH)
+	_music_dungeon_3d = _safe_load(_MUSIC_DUNGEON_3D_PATH)
+	_sfx_player_attack_3d = _safe_load(_SFX_PLAYER_ATTACK_3D_PATH)
+	_sfx_enemy_attack_3d = _safe_load(_SFX_ENEMY_ATTACK_3D_PATH)
+	_sfx_stairs_3d = _safe_load(_SFX_STAIRS_3D_PATH)
+
+func _safe_load(path: String) -> AudioStream:
+	if not ResourceLoader.exists(path):
+		push_warning("AudioManager: missing audio file: %s" % path)
+		return null
+	return load(path)
+
+func _is_3d_mode() -> bool:
+	var settings = get_node_or_null("/root/GameSettings")
+	return settings != null and settings.use_3d
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 #  MUSIC
@@ -86,7 +112,10 @@ func stop_music(fade_out: float = 1.0) -> void:
 	_music_player.stop()
 
 func play_dungeon_music() -> void:
-	play_music(_music_dungeon)
+	if _is_3d_mode():
+		play_music(_music_dungeon_3d)
+	else:
+		play_music(_music_dungeon)
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 #  SFX
@@ -103,13 +132,22 @@ func play_sfx(stream: AudioStream, volume_linear: float = -1.0) -> void:
 	player.play()
 
 func play_player_attack() -> void:
-	play_sfx(_sfx_player_attack)
+	if _is_3d_mode():
+		play_sfx(_sfx_player_attack_3d)
+	else:
+		play_sfx(_sfx_player_attack)
 
 func play_enemy_attack() -> void:
-	play_sfx(_sfx_enemy_attack)
+	if _is_3d_mode():
+		play_sfx(_sfx_enemy_attack_3d)
+	else:
+		play_sfx(_sfx_enemy_attack)
 
 func play_stairs() -> void:
-	play_sfx(_sfx_stairs)
+	if _is_3d_mode():
+		play_sfx(_sfx_stairs_3d)
+	else:
+		play_sfx(_sfx_stairs)
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 #  AUDIO BUS SETUP

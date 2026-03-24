@@ -1,0 +1,9 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="PackedScene" path="res://resources/Charmander/Charmander (+ Animations).fbx" id="1_charmander"]
+[ext_resource type="Script" path="res://scripts/dungeon_3d/entities/enemy_3d.gd" id="2_enemy_script"]
+
+[node name="Enemy3D" type="Node3D"]
+script = ExtResource("2_enemy_script")
+model_scene = ExtResource("1_charmander")
+target_height = 1.2

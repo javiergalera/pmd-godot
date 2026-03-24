@@ -1,0 +1,90 @@
+[gd_scene load_steps=11 format=3]
+
+[ext_resource type="PackedScene" path="res://resources/Squirtle/zenigame_10 (+ Animations).fbx" id="1_squirtle"]
+[ext_resource type="Script" path="res://scripts/dungeon_3d/player_3d.gd" id="2_player"]
+[ext_resource type="Script" path="res://scripts/dungeon_3d/dungeon_generator_3d.gd" id="3_generator"]
+[ext_resource type="Script" path="res://scripts/dungeon_3d/entities/enemy_manager_3d.gd" id="4_enemy_manager"]
+[ext_resource type="PackedScene" path="res://scenes/dungeon_3d/enemy_3d.tscn" id="5_enemy_scene"]
+[ext_resource type="Script" path="res://scripts/core/minimap.gd" id="6_minimap"]
+[ext_resource type="Script" path="res://scripts/core/turn_manager.gd" id="7_turn_manager"]
+[ext_resource type="Script" path="res://scripts/core/floor_transition.gd" id="8_floor_transition"]
+[ext_resource type="Script" path="res://scripts/dungeon_3d/vision_overlay_3d.gd" id="9_vision"]
+
+[sub_resource type="Environment" id="env_1"]
+background_mode = 1
+background_color = Color(0.1, 0.1, 0.15, 1)
+ambient_light_source = 2
+ambient_light_color = Color(0.3, 0.3, 0.35, 1)
+ambient_light_energy = 0.6
+
+[node name="Dungeon3D" type="Node3D"]
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.866, -0.354, 0.354, 0, 0.707, 0.707, -0.5, -0.612, 0.612, 0, 20, 0)
+shadow_enabled = true
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("env_1")
+
+[node name="Player3D" type="Node3D" parent="."]
+script = ExtResource("2_player")
+model_scene = ExtResource("1_squirtle")
+target_height = 1.2
+
+[node name="Camera3D" type="Camera3D" parent="Player3D"]
+transform = Transform3D(1, 0, 0, 0, 0.643, 0.766, 0, -0.766, 0.643, 0, 15.32, 12.87)
+fov = 30.0
+
+[node name="DungeonRenderer3D" type="Node3D" parent="."]
+script = ExtResource("3_generator")
+
+[node name="EnemyManager3D" type="Node3D" parent="."]
+script = ExtResource("4_enemy_manager")
+enemy_scene = ExtResource("5_enemy_scene")
+
+[node name="TurnManager" type="Node" parent="."]
+script = ExtResource("7_turn_manager")
+
+[node name="FloorTransition" type="Node" parent="."]
+script = ExtResource("8_floor_transition")
+
+[node name="VisionOverlay3D" type="Node3D" parent="."]
+script = ExtResource("9_vision")
+
+[node name="CanvasLayer" type="CanvasLayer" parent="."]
+
+[node name="FloorLabel" type="Label" parent="CanvasLayer"]
+offset_left = 9.0
+offset_top = 8.0
+offset_right = 101.0
+offset_bottom = 31.0
+text = "1F"
+
+[node name="SeedLabel" type="Label" parent="CanvasLayer"]
+offset_left = 8.0
+offset_top = 28.0
+offset_right = 140.0
+offset_bottom = 42.0
+text = "Seed: 0"
+
+[node name="FadeRect" type="ColorRect" parent="CanvasLayer"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0, 0, 0, 0)
+
+[node name="Minimap" type="Control" parent="CanvasLayer"]
+layout_mode = 3
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -176.0
+offset_top = 8.0
+offset_right = -8.0
+offset_bottom = 104.0
+grow_horizontal = 0
+mouse_filter = 2
+script = ExtResource("6_minimap")
